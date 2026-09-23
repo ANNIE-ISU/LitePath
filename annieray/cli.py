@@ -191,6 +191,62 @@ def build_parser() -> argparse.ArgumentParser:
     batch.add_argument("--burst-position", type=str, default=None,
                        help="Burst centre: 'x y z' in mm (default: tank centre) ")
 
+    # ---- standalone LAPPD batch subcommand ----
+    lappd_batch = sub.add_parser(
+        "batch-lappd",
+        help="Batch-mode events on a standalone LAPPD module (same output "
+             "format as 'batch')",
+    )
+    lappd_batch.add_argument("--events", type=int, default=-1,
+                             help="Number of events (default: 100, or grid "
+                                  "nx*nz / line count of --muon-file)")
+    lappd_batch.add_argument("--source", choices=["cherenkov", "spot"], default="cherenkov",
+                             help="Light source definition (default: cherenkov). "
+                                  "'cherenkov' = tracked muon cone, "
+                                  "'spot' = directed diverging beam")
+    lappd_batch.add_argument("--sample-mode", choices=["random", "grid", "fixed"],
+                             default="random",
+                             help="Where to place the source (default: random). "
+                                  "random/grid aim at the photocathode; "
+                                  "fixed uses --muon-fixed/--muon-file")
+    lappd_batch.add_argument("--grid-steps", nargs=2, type=int, default=[9, 5],
+                             metavar=("NX", "NZ"),
+                             help="Grid size for --sample-mode grid: NX transverse "
+                                  "by NZ distance steps (default: 9 5)")
+    lappd_batch.add_argument("--muon-fixed", type=str, default=None,
+                             help="Fixed source: 'x y z t0 dx dy dz' (7 floats)")
+    lappd_batch.add_argument("--muon-file", type=Path, default=None,
+                             help="File with one topology per line: 'x y z t0 dx dy dz'")
+    lappd_batch.add_argument("--photons-per-cm", type=int, default=150,
+                             help="Cherenkov photons per cm along the muon track")
+    lappd_batch.add_argument("--n-photons", type=int, default=5000,
+                             help="Photons in the --source spot beam")
+    lappd_batch.add_argument("--spread-deg", type=float, default=2.0,
+                             help="Angular spread (deg) of the launched source")
+    lappd_batch.add_argument("--intercept", nargs=3, type=float, default=None,
+                             metavar=("X", "Y", "Z"),
+                             help="Aim target (photocathode intercept point): "
+                                  "'x y z'. Overrides aiming at the PC centre "
+                                  "and is recorded in the truth table")
+    lappd_batch.add_argument("--wavelength", type=float, default=350.0,
+                             help="Photon wavelength in nm (default: 350)")
+    lappd_batch.add_argument("--lappd-response", action="store_true",
+                             help="Enable LAPPD digital readout pipeline")
+    lappd_batch.add_argument("--max-bounces", type=int, default=0,
+                             help="Number of surface reflections per photon (0 = off)")
+    lappd_batch.add_argument("--water-absorption-mm", type=float, default=0.0,
+                             help="Water absorption length in mm (0 = off)")
+    lappd_batch.add_argument("--water-scattering-mm", type=float, default=0.0,
+                             help="Rayleigh scattering length in mm (0 = off)")
+    lappd_batch.add_argument("--output-dir", "-o", type=Path, default=Path("results"),
+                             help="Output directory (writes output.h5)")
+    lappd_batch.add_argument("--no-record", action="store_true",
+                             help="Skip writing per-event output files")
+    lappd_batch.add_argument("--seed", type=int, default=None, help="Random seed")
+    lappd_batch.add_argument("--show-config", action="store_true",
+                             help="Print resolved batch configuration and geometry "
+                                  "then exit")
+
     # ---- fit subcommand ----
     fit = sub.add_parser("fit", help="Grid-scan direction fit for a single event")
     fit.add_argument("h5", type=Path, help="Path to batch output HDF5 file")
@@ -606,6 +662,103 @@ def batch_command(args: argparse.Namespace) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Standalone LAPPD batch command
+# ---------------------------------------------------------------------------
+
+def lappd_batch_command(args: argparse.Namespace) -> None:
+    from annieray.lappd_batch import LAPPDBatchConfig, run_lappd_batch
+    from annieray.tracer import build_single_lappd_geometry
+
+    # --events default: grid product, muon-file line count, or 100
+    n_events = args.events
+    if n_events == -1:
+        if args.sample_mode == "grid":
+            n_events = args.grid_steps[0] * args.grid_steps[1]
+        elif args.muon_file and args.muon_file.exists():
+            n_events = _count_muon_lines(args.muon_file)
+        else:
+            n_events = 100
+
+    # Parse composite arguments
+    muon_fixed = None
+    if args.muon_fixed:
+        parts = args.muon_fixed.split()
+        if len(parts) != 7:
+            print("Error: --muon-fixed requires 7 floats: x y z t0 dx dy dz")
+            return
+        muon_fixed = tuple(float(p) for p in parts)
+
+    intercept = None
+    if args.intercept:
+        intercept = tuple(float(v) for v in args.intercept)
+
+    nx, nz = args.grid_steps
+
+    config = LAPPDBatchConfig(
+        n_events=n_events,
+        sample_mode=args.sample_mode,
+        source=args.source,
+        photons_per_cm=args.photons_per_cm,
+        wavelength_nm=args.wavelength,
+        n_photons_spot=args.n_photons,
+        spread_deg=args.spread_deg,
+        intercept=intercept,
+        muon_fixed=muon_fixed,
+        muon_file=args.muon_file,
+        grid_steps=(nx, nz),
+        lappd_response=args.lappd_response,
+        max_bounces=args.max_bounces,
+        water_absorption_mm=args.water_absorption_mm,
+        water_scattering_mm=args.water_scattering_mm,
+        output_dir=args.output_dir,
+        record_events=not args.no_record,
+        seed=args.seed,
+    )
+
+    if args.muon_file and not args.muon_file.exists():
+        print(f"Error: muon file not found: {args.muon_file}")
+        return
+
+    geometry = build_single_lappd_geometry((0, 0, 0), (0, 0, 1))
+
+    hd = geometry.lappd_housing_data[0]
+    pc = geometry.annie_lappd_data[0]
+    print("Standalone LAPPD module (single ANNIE housing)")
+    print(f"  Housing centre: ({hd[0]:.0f}, {hd[1]:.0f}, {hd[2]:.0f}) mm, "
+          f"half-extents: ({hd[12]:.0f}, {hd[13]:.0f}, {hd[14]:.0f}) mm")
+    print(f"  Photocathode centre: ({pc[0]:.0f}, {pc[1]:.0f}, {pc[2]:.1f}) mm, "
+          f"half: {pc[6]:.1f} mm")
+    print(f"  Source: {config.source}, sample-mode: {config.sample_mode}, "
+          f"events: {config.n_events}")
+
+    if args.show_config:
+        print(f"\n{'=' * 20} config {'=' * 20}")
+        from annieray.lappd_batch import config_to_dict
+        for k, v in config_to_dict(config).items():
+            print(f"  {k}: {v}")
+        print("=" * 48)
+        return
+
+    optics_cfg = None
+    from annieray.optics import load_optics_config, WaterAttenuation
+    water_cfg = WaterAttenuation(
+        absorption_length_mm=args.water_absorption_mm,
+        scattering_length_mm=args.water_scattering_mm,
+    )
+    if args.max_bounces > 0 or water_cfg.is_active:
+        optics_cfg = load_optics_config(None)
+
+    paths = run_lappd_batch(geometry, config, optics_config=optics_cfg)
+
+    # run_lappd_batch writes the 'detectors' table into the file itself.
+    h5_path = args.output_dir / "output.h5"
+    if h5_path.exists():
+        print(f"  Output: {h5_path}")
+
+    print("Done.")
+
+
+# ---------------------------------------------------------------------------
 # Fit command
 # ---------------------------------------------------------------------------
 
@@ -766,6 +919,8 @@ def main(argv: list[str] | None = None) -> None:
         run_lappd_server(host=args.host, port=args.port)
     elif args.command == "batch":
         batch_command(args)
+    elif args.command == "batch-lappd":
+        lappd_batch_command(args)
     elif args.command == "fit":
         fit_command(args)
     else:

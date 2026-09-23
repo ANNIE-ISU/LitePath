@@ -140,3 +140,66 @@ def generate_isotropic_photons(
     ]).astype(np.float32)
     create_times = np.full(n_photons, point[3] * 1e9, dtype=np.float32)
     return origins, directions, create_times
+
+
+def generate_spot_photons(
+    point: tuple[float, float, float, float],
+    direction: tuple[float, float, float],
+    n_photons: int,
+    spread_deg: float = 2.0,
+    rng: np.random.Generator | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Generate a directed beam of *n_photons* from a point source.
+
+    Mirrors the interactive LAPPD viewer's "spot gun": photons originate at
+    *point* and travel roughly along *direction*, scattered away from the
+    axis by a Rayleigh distribution scaled by *spread_deg*.
+
+    Parameters
+    ----------
+    point : (x, y, z, t0)
+        Source position and time (t0 in *seconds*, converted to ns internally).
+    direction : (dx, dy, dz)
+        Nominal beam direction (need not be unit length).
+    n_photons : int
+        Number of photons to generate.
+    spread_deg : float
+        Rayleigh scale of the angular dispersion in degrees.
+    rng : np.random.Generator or None
+
+    Returns
+    -------
+    (origins, directions, create_times): (N, 3) float32, (N, 3) float32, (N,) float32.
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+
+    dx0, dy0, dz0 = direction[:3]
+    norm = math.sqrt(dx0 * dx0 + dy0 * dy0 + dz0 * dz0)
+    if norm < 1e-12:
+        dy0, norm = 0.0, 1.0
+        dz0 = -1.0
+    dx0, dy0, dz0 = dx0 / norm, dy0 / norm, dz0 / norm
+    muon_dir = np.array([dx0, dy0, dz0], dtype=np.float64)
+
+    if abs(dx0) < 0.9:
+        ref = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+    else:
+        ref = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+    u = np.cross(muon_dir, ref)
+    u /= np.linalg.norm(u)
+    v = np.cross(muon_dir, u)
+
+    spread_rad = math.radians(spread_deg)
+    theta = rng.rayleigh(scale=spread_rad, size=n_photons)
+    phi = rng.uniform(0.0, 2.0 * math.pi, size=n_photons)
+    mu = (np.cos(theta)[:, None] * muon_dir
+          + np.sin(theta)[:, None] * np.cos(phi)[:, None] * u
+          + np.sin(theta)[:, None] * np.sin(phi)[:, None] * v)
+    mu /= np.linalg.norm(mu, axis=1, keepdims=True)
+
+    origins = np.full((n_photons, 3), point[:3], dtype=np.float32)
+    directions = mu.astype(np.float32)
+    t0_ns = point[3] * 1e9 if len(point) > 3 else 0.0
+    create_times = np.full(n_photons, t0_ns, dtype=np.float32)
+    return origins, directions, create_times

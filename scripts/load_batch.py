@@ -1,145 +1,101 @@
-"""Template: load batch output, group hits by event and detector.
+"""Showcase: load batch output (full-detector or batch-lappd) with BatchReader.
 
 Usage:
-    python scripts/load_batch.py [--hits results/photon_hits.parquet]
-                                 [--pmts results/pmt_responses.parquet]
+    python scripts/load_batch.py results/output.h5
+    python scripts/load_batch.py /tmp/batch_out/       # reads <dir>/output.h5
 
-The output Parquet files have these columns:
-
-    photon_hits.parquet:
-        event_id, detector_system, detector_index,
-        local_u, local_v, arrival_time, wavelength
-
-    pmt_responses.parquet (only with --pmt-response):
-        event_id, pmt_index, charge, time, n_hits
-
-    muon_truth.parquet:
-        event_id, pos_x/y/z, t0, dir_x/y/z, theta_deg, phi_deg,
-        track_length_mm, n_generated, n_detected
-
-Detector system codes:
-    0 = PMT
-    1 = LAPPD (default rectangular)
-    2 = LAPPD (ANNIE housing)
-
-Detector index maps to the geometry's detector registry (stable IDs).
-
-Muon direction conventions:
-    theta_deg: polar angle from vertical (0 = upward, 180 = downward)
-    phi_deg:   azimuthal angle in XY plane (arctan2(y, x))
+Both `annieray batch` and `annieray batch-lappd` write the same HDF5 format,
+so this script works on either.
 """
 
 import argparse
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
-
-from annieray.io_h5 import load_table
+from annieray.io_h5 import BatchReader
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Load and inspect batch output")
-    parser.add_argument("--hits", default=None,
-                        help="Path to HDF5 output file (replaces --hits/--pmts/--muons)")
-    parser.add_argument("--pmts",
-                        help="Ignored (kept for backward compat)")
-    parser.add_argument("--muons",
-                        help="Ignored (kept for backward compat)")
-    parser.add_argument("output", nargs="?", default="results",
-                        help="Batch output directory (default results/)")
+    parser.add_argument("output", help="HDF5 file or directory containing output.h5")
     args = parser.parse_args()
 
-    if args.hits:
-        h5_path = args.hits
-    else:
-        h5_path = Path(args.output) / "output.h5"
+    path = Path(args.output)
+    if path.is_dir():
+        path = path / "output.h5"
+    if not path.exists():
+        print(f"Not found: {path}")
+        return
 
-    # ── Load ──────────────────────────────────────────────────────
-    hits = load_table(h5_path, "photon_hits")
-    print(f"photon_hits: {len(hits)} rows, {hits.event_id.nunique()} events")
+    reader = BatchReader(path)
+    summary = reader.summary()
+    print(f"format={summary['format']} schema_version={summary['schema_version']}")
+    print(f"detector_mode={summary['detector_mode']} n_events={summary['n_events']}")
+    print(f"tables: {sorted(summary['tables'])}")
+    print(f"config: {summary['config']}\n")
 
-    # ── Per-event summary ─────────────────────────────────────────
+    # ── Light-source truth ──────────────────────────────────────────
+    muons = reader.load_table("muon_truth")
+    print(f"── muon_truth: {len(muons)} events ──")
+    cols = ["event_id", "source_type", "pos_x", "pos_y", "pos_z",
+            "dir_x", "dir_y", "dir_z", "track_length_mm",
+            "n_generated", "n_detected", "spread_deg",
+            "intercept_x", "intercept_y", "intercept_z"]
+    print(muons[[c for c in cols if c in muons]].to_string(index=False))
+
+    # Per-event detection efficiency
+    muons["efficiency"] = muons["n_detected"] / muons["n_generated"].clip(1)
+    print(f"\nefficiency: {muons['efficiency'].min():.4f} – "
+          f"{muons['efficiency'].max():.4f}")
+
+    # Source mix
+    import numpy as np
+    src_names = {0: "track", 1: "light_burst", 2: "spot"}
+    if "source_type" in muons:
+        counts = muons["source_type"].value_counts()
+        for st, n in counts.items():
+            print(f"source_type={st} ({src_names.get(st, '?')}): {n} events")
+
+    # ── Photon hits ─────────────────────────────────────────────────
+    hits = reader.load_table("photon_hits")
+    print(f"\n── photon_hits: {len(hits)} rows, "
+          f"{hits.event_id.nunique()} events ──")
+
     per_event = hits.groupby("event_id").agg(
         n_photons=("detector_index", "count"),
-        n_structure=("detector_system", lambda x: (x == -1).sum()),
         n_pmt=("detector_system", lambda x: (x == 0).sum()),
-        n_lappd=("detector_system", lambda x: (x == 1).sum()),
-        n_annie=("detector_system", lambda x: (x == 2).sum()),
+        n_lappd=("detector_system", lambda x: (x != 0).sum()),
     )
-    print("\n── Per-event hit counts (first 5) ──")
+    print("Per-event hit counts (first 5):")
     print(per_event.head())
 
-    # ── Per-detector hit counts per event ─────────────────────────
-    by_detector = hits.groupby(
-        ["event_id", "detector_system", "detector_index"],
-        as_index=False,
-    ).agg(
-        n_hits=("detector_index", "count"),
-        first_arrival=("arrival_time", "min"),
-    )
-    print("\n── Per-detector hits (first 10) ──")
-    print(by_detector.head(10))
+    # ── LAPPD readouts (if enabled) ─────────────────────────────────
+    readouts = reader.load_table("lappd_readouts")
+    if len(readouts):
+        print(f"\n── lappd_readouts: {len(readouts)} rows across "
+              f"{readouts.event_id.nunique()} events ──")
+        print(readouts[["event_id", "lappd_index", "n_photons",
+                        "n_passed_qe"]].head())
+        # Full per-LAPPD traces for a single event
+        ev = reader.load_event(int(readouts["event_id"].iloc[0]))
+        for idx, arr in ev.lappd_readouts.items():
+            print(f"event {ev.event_id} LAPPD {idx}: readout shape "
+                  f"{arr.shape} (side0 sum={arr[..., 0].sum():.4f}, "
+                  f"side1 sum={arr[..., 1].sum():.4f})")
 
-    # ── Muon truth parameters ─────────────────────────────────────
-    try:
-        muons = load_table(h5_path, "muon_truth")
-    except (KeyError, OSError):
-        muons = None
-    if muons is not None:
-        print(f"\n── Muon truth: {len(muons)} events ──")
-        print(muons.head())
+    # ── PMT responses (full-detector batches) ───────────────────────
+    pmts = reader.load_table("pmt_responses")
+    if len(pmts):
+        print(f"\n── pmt_responses: {len(pmts)} rows ──")
+        per_charge = pmts.groupby("event_id")["charge"].sum()
+        print(f"total charge per event: {per_charge.head().to_dict()}")
 
-        # ── Full-length hit-count vector for PMT 42 ───────────────
-        pmt42 = by_detector.query(
-            "detector_system == 0 and detector_index == 42"
-        )
-        counts = pmt42.set_index("event_id")["n_hits"]    # event_id -> n_hits
-        full = counts.reindex(muons["event_id"], fill_value=0)
-        vec = full.values                                  # numpy array, len = n_events
-        nz = (vec > 0).sum()
-        print(f"\n── PMT 42 hit-count vector: len={len(vec)}, "
-              f"{nz} non-zero ({100 * nz / len(vec):.1f}%) ──")
-        print(vec[:12], "...")
-
-        # Merge muon params with per-event hit summaries
-        ev = per_event.reset_index()
-        ev_mu = ev.merge(muons, on="event_id", how="left")
-        print(f"\n── Per-event hits + muon params (first 5) ──")
-        print(ev_mu.head())
-
-        # Example: filter by track length
-        long = ev_mu.query("track_length_mm > 3000")
-        print(f"\n── Events with track > 3 m: {len(long)} ──")
-        if not long.empty:
-            print(long[["event_id", "track_length_mm", "n_photons"]].head())
-
-        # Example: filter by direction (downward = theta > 90)
-        downward = ev_mu.query("theta_deg > 90")
-        print(f"\n── Downward-going events: {len(downward)} ──")
-
-        # Example: efficiency vs track length
-        ev_mu["efficiency"] = ev_mu["n_detected"] / ev_mu["n_generated"].clip(1)
-        print(f"\n── Detection efficiency range: "
-              f"{ev_mu['efficiency'].min():.4f} – {ev_mu['efficiency'].max():.4f}")
-    else:
-        print("\n(No muon_truth.parquet found)")
-
-    # ── PMT response data (if available) ──────────────────────────
-    try:
-        pmts = load_table(h5_path, "pmt_responses")
-    except (KeyError, OSError):
-        pmts = None
-    if pmts is not None:
-        print(f"\n── PMT responses: {len(pmts)} rows, "
-              f"{pmts.event_id.nunique()} events ──")
-        per_event_charge = pmts.groupby("event_id").agg(
-            total_charge=("charge", "sum"),
-            n_hits=("n_hits", "sum"),
-        )
-        print(per_event_charge.head())
-    else:
-        print("\n(No pmt_responses in HDF5 — skip --pmt-response?)")
+    # ── Per-event shortcut via EventData ────────────────────────────
+    ev = reader.load_event(0)
+    print(f"\n── Event 0 ──")
+    print(f"  is_beam={ev.is_beam()} n_generated={ev.n_generated()} "
+          f"n_detected={ev.n_detected()}")
+    print(f"  hits={len(ev.hits)}, lappd_readouts="
+          f"{list(ev.lappd_readouts)}")
 
 
 if __name__ == "__main__":

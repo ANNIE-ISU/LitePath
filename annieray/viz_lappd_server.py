@@ -123,37 +123,16 @@ def _trace_spot_on_lappd(
     rng: np.random.Generator,
 ) -> dict:
     """Generate a directed beam of N photons and trace via the GPU kernel."""
-    dx0, dy0, dz0 = dir
-    norm = math.sqrt(dx0*dx0 + dy0*dy0 + dz0*dz0)
-    if norm < 1e-12:
-        return {"n_photons": 0, "n_hits": 0, "hits": [], "rays": []}
-    dx0 /= norm; dy0 /= norm; dz0 /= norm
-    muon_dir = np.array([dx0, dy0, dz0], dtype=np.float64)
+    from annieray.cherenkov import generate_spot_photons
 
-    if abs(dx0) < 0.9:
-        ref = np.array([1.0, 0.0, 0.0], dtype=np.float64)
-    else:
-        ref = np.array([0.0, 1.0, 0.0], dtype=np.float64)
-    u = np.cross(muon_dir, ref)
-    u /= np.linalg.norm(u)
-    v = np.cross(muon_dir, u)
-
-    origins = np.zeros((n_photons, 3), dtype=np.float32)
-    directions = np.zeros((n_photons, 3), dtype=np.float32)
-    spread_rad = math.radians(spread_deg)
-
-    for i in range(n_photons):
-        theta = rng.rayleigh(scale=spread_rad)
-        phi = rng.uniform(0.0, 2.0 * math.pi)
-        d = (math.cos(theta) * muon_dir
-             + math.sin(theta) * math.cos(phi) * u
-             + math.sin(theta) * math.sin(phi) * v)
-        d /= np.linalg.norm(d)
-        origins[i] = pos
-        directions[i] = d.astype(np.float32)
+    origins, directions, create_times = generate_spot_photons(
+        (pos[0], pos[1], pos[2], 0.0), dir, n_photons,
+        spread_deg=spread_deg, rng=rng,
+    )
+    d0 = directions[0] if n_photons else (0.0, 0.0, -1.0)
 
     hits_array = trace_rays(origins, directions, _geometry)
-    hit_dicts = _hits_array_to_dicts(hits_array, origins, directions)
+    hit_dicts = _hits_array_to_dicts(hits_array, origins, directions, create_times)
 
     ray_sample = max(1, n_photons // 500)
     rays = []
@@ -169,7 +148,7 @@ def _trace_spot_on_lappd(
 
     return _sanitise({
         "muon_pos": [float(pos[0]), float(pos[1]), float(pos[2])],
-        "muon_dir": [float(dx0), float(dy0), float(dz0)],
+        "muon_dir": [float(d0[0]), float(d0[1]), float(d0[2])],
         "n_photons": n_photons,
         "n_hits": len(hit_dicts),
         "hits": hit_dicts,

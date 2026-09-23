@@ -1986,10 +1986,21 @@ def build_single_lappd_geometry(
     Useful for single-LAPPD visualisation, batch mode, or any context
     where only one housing is needed without the full detector geometry.
     """
+    from annieray.detectors import build_detector_registry
     from annieray.lappd_model import build_housing, housing_to_arrays
 
     housing = build_housing(cad_centre, cad_normal, z_axis)
     hd, ad = housing_to_arrays(housing)
+    detectors = build_detector_registry(
+        pmt_centers=np.zeros((0, 3), dtype=np.float32),
+        pmt_radii=np.zeros(0, dtype=np.float32),
+        pmt_types=[],
+        pmt_directions=np.zeros((0, 3), dtype=np.float32),
+        pmt_detector_nums=[],
+        lappd_rect_data=None,
+        lappd_housing_data=hd,
+        annie_lappd_data=ad,
+    )
 
     return Geometry(
         mesh_vertices=np.zeros((0, 3), dtype=np.float32),
@@ -2004,6 +2015,7 @@ def build_single_lappd_geometry(
         tank_z_max=0.0,
         lappd_housing_data=hd,
         annie_lappd_data=ad,
+        detectors=detectors,
     )
 
 

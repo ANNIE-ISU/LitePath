@@ -84,6 +84,16 @@ python -m annieray batch \
     --events 100 --photons-per-cm 0 \
     --scintillation --photons-per-cm-scint 100
 
+# Batch mode on a standalone LAPPD module (same output format as 'batch')
+python -m annieray batch-lappd \
+    --source cherenkov --sample-mode grid \
+    --grid-steps 9 5 --photons-per-cm 150 --lappd-response
+
+# Standalone LAPPD batch with a spot beam onto the photocathode
+python -m annieray batch-lappd \
+    --source spot --n-photons 5000 --spread-deg 2 \
+    --intercept 0 -45 3.5 --lappd-response
+
 # Direction fit
 python -m annieray fit output.h5 --event 0 --show
 
@@ -105,6 +115,35 @@ python -m annieray viz-server --pmt-csv PMTPositions_Scan.txt --surfboard 3 --po
 | `--tau-slow` | 20.0 | Slow scintillation decay time (ns) |
 | `--fast-fraction` | 0.95 | Fraction of scintillation light in the fast component |
 | `--wavelength-scint` | 420.0 | Scintillation photon wavelength (nm) |
+
+### `batch-lappd` Flags (standalone LAPPD module)
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--source` | `cherenkov` | Light source: `cherenkov` (tracked muon cone) or `spot` (directed beam) |
+| `--sample-mode` | `random` | Where to place the source: `random`, `grid`, or `fixed` |
+| `--events` | `-1` | Number of events (default: grid `NX*NZ`, muon-file lines, or 100) |
+| `--grid-steps NX NZ` | `9 5` | Grid size for `--sample-mode grid` |
+| `--muon-fixed` | — | Fixed source: `'x y z t0 dx dy dz'` (7 floats) |
+| `--muon-file` | — | File with one `x y z t0 dx dy dz` topology per line |
+| `--photons-per-cm` | 150 | Cherenkov photons per cm along the muon track |
+| `--n-photons` | 5000 | Photons in the `spot` beam |
+| `--spread-deg` | 2.0 | Angular spread (deg) of the launched source |
+| `--intercept X Y Z` | — | Aim target (PC intercept); overrides aiming at PC centre, recorded in truth |
+| `--wavelength` | 350.0 | Photon wavelength (nm) |
+| `--lappd-response` | false | Enable LAPPD digital readout pipeline (writes `lappd_readouts`) |
+| `--max-bounces` | 0 | Number of surface reflections per photon (0 = off) |
+| `--water-absorption-mm` | 0.0 | Water absorption length (mm, 0 = off) |
+| `--water-scattering-mm` | 0.0 | Rayleigh scattering length (mm, 0 = off) |
+| `--output-dir`/`-o` | `results` | Output directory (writes `output.h5`) |
+| `--no-record` | false | Skip writing per-event output files |
+| `--seed` | — | Random seed |
+
+Both `batch` and `batch-lappd` write the same HDF5 schema (v1):
+`photon_hits`, `muon_truth`, `lappd_readouts` (flat, per event+LAPPD),
+`pmt_responses` (`batch` only), `detectors`, plus `format`/`schema_version`/
+`detector_mode`/`config` root attrs.  See `docs/BATCH_OUTPUT.md` and use
+`BatchReader` in `annieray/io_h5.py` to load files.
 
 ## Key Data Files
 

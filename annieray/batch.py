@@ -9,8 +9,9 @@ Provides:
 
 from __future__ import annotations
 
+import json
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -19,6 +20,8 @@ import numpy as np
 
 from annieray.io_h5 import (
     PHOTON_HIT_DTYPE, MUON_TRUTH_DTYPE, PMT_RESPONSE_DTYPE,
+    LAPPD_READOUT_DTYPE, SCHEMA_VERSION, FORMAT_NAME,
+    SOURCE_TRACK, SOURCE_LIGHT_BURST, SOURCE_SPOT,
     append_table,
 )
 from annieray.tracer import (
@@ -157,14 +160,23 @@ class BatchAccumulator:
 
     Each ``append_event()`` call appends rows to resizable HDF5 datasets.
     This avoids accumulating all rows in Python memory.
+
+    The written layout follows the standardized v1 schema: every batch mode
+    (full detector or standalone LAPPD) writes ``photon_hits``,
+    ``muon_truth``, ``pmt_responses`` (optional), ``lappd_readouts``
+    (optional) and ``detectors`` tables, plus schema metadata in the root
+    group.  See docs/BATCH_OUTPUT.md.
     """
 
     output_dir: Path = Path("results")
+    detector_mode: str = "full"  # "full" (tank) or "lappd-standalone"
+    config: Optional[dict] = None  # JSON-serializable run-config dict
 
     _h5_file: Optional[h5py.File] = None
     _n_photon_rows: int = 0
     _n_pmt_rows: int = 0
     _n_muon_rows: int = 0
+    _n_lappd_rows: int = 0
     _n_lappd_events: int = 0
 
     @property
@@ -175,6 +187,12 @@ class BatchAccumulator:
         if self._h5_file is None:
             self.output_dir.mkdir(parents=True, exist_ok=True)
             self._h5_file = h5py.File(str(self.h5_path), "w")
+            self._h5_file.attrs["schema_version"] = SCHEMA_VERSION
+            self._h5_file.attrs["format"] = FORMAT_NAME
+            self._h5_file.attrs["detector_mode"] = self.detector_mode
+            self._h5_file.attrs["created"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+            if self.config is not None:
+                self._h5_file.attrs["config"] = json.dumps(self.config)
         return self._h5_file
 
     def append_event(
@@ -259,8 +277,16 @@ class BatchAccumulator:
         n_generated_sci: int = 0,
         n_detected_ckv: int = 0,
         n_detected_sci: int = 0,
+        source_type: int = SOURCE_TRACK,
+        spread_deg: float = float("nan"),
+        intercept: Optional[tuple] = None,
     ) -> None:
-        """Record one muon truth row."""
+        """Record one muon truth row (per-event light-source truth).
+
+        *source_type* discriminates tracked muons (0), isotropic light
+        bursts (1) and directed spot beams (2).  Columns that do not apply
+        to the source type are NaN / 0 (see docs/BATCH_OUTPUT.md).
+        """
         x, y, z, t0 = pos
         dx, dy, dz = direc
         # Normalize direction so theta is consistent regardless of input
@@ -288,6 +314,14 @@ class BatchAccumulator:
         arr["n_generated_sci"] = n_generated_sci
         arr["n_detected_ckv"] = n_detected_ckv
         arr["n_detected_sci"] = n_detected_sci
+        arr["source_type"] = source_type
+        arr["spread_deg"] = spread_deg
+        if intercept is not None:
+            arr["intercept_x"], arr["intercept_y"], arr["intercept_z"] = (
+                float(v) for v in intercept
+            )
+        else:
+            arr["intercept_x"] = arr["intercept_y"] = arr["intercept_z"] = np.nan
 
         f = self._ensure_file()
         append_table(f, "muon_truth", arr)
@@ -300,26 +334,29 @@ class BatchAccumulator:
     def _write_lappd_readouts(
         self, event_id: int, responses: dict[int, dict]
     ) -> None:
-        """Store per-LAPPD readout matrices as a per-event HDF5 group.
+        """Store per-LAPPD readout matrices in the flat ``lappd_readouts`` table.
 
         *responses* is the dict returned by ``lappd_response.process_hits()``,
-        mapping ``detector_index`` → ``{"side0": (28,256), "side1": (28,256), ...}``.
+        mapping ``detector_index`` → ``{"side0": (28,256), "side1": (28,256),
+        "n_photons": int, "n_passed_qe": int}``.  One row is appended per
+        (event, LAPPD) with the full voltage-time traces.
         """
         if not responses:
             return
-        f = self._ensure_file()
         det_indices = sorted(responses.keys())
-        arrays = []
-        for idx in det_indices:
+        arr = np.zeros(len(det_indices), dtype=LAPPD_READOUT_DTYPE)
+        for i, idx in enumerate(det_indices):
             r = responses[idx]
-            # Stack side0/side1 → (28, 256, 2)
-            stacked = np.stack([r["side0"], r["side1"]], axis=-1)
-            arrays.append(stacked)
-        data = np.stack(arrays, axis=0)  # (n_lapds, 28, 256, 2)
-        grp = f.create_group(f"event_{event_id}")
-        ds = grp.create_dataset("lappd_readouts", data=data,
-                                compression="gzip")
-        ds.attrs["detector_indices"] = det_indices
+            arr["event_id"][i] = event_id
+            arr["lappd_index"][i] = idx
+            arr["side0"][i] = r["side0"]
+            arr["side1"][i] = r["side1"]
+            arr["n_photons"][i] = r.get("n_photons", 0)
+            arr["n_passed_qe"][i] = r.get("n_passed_qe", 0)
+
+        f = self._ensure_file()
+        append_table(f, "lappd_readouts", arr)
+        self._n_lappd_rows += len(det_indices)
         self._n_lappd_events += 1
 
     def close(self) -> None:
@@ -381,6 +418,22 @@ class BatchConfig:
     seed: Optional[int] = None
 
 
+def config_to_dict(config: "BatchConfig") -> dict:
+    """Serialize a BatchConfig into a JSON-friendly dict.
+
+    Paths become strings and tuples become lists so the result can be
+    stored in the HDF5 root-group ``config`` attribute.
+    """
+    def _clean(value):
+        if isinstance(value, Path):
+            return str(value)
+        if isinstance(value, tuple):
+            return list(value)
+        return value
+
+    return {k: _clean(v) for k, v in asdict(config).items()}
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
@@ -390,6 +443,7 @@ def run_batch(
     geometry: Geometry,
     config: BatchConfig,
     optics_config: Optional[dict] = None,
+    detector_mode: str = "full",
 ) -> dict[str, Path]:
     """Run N events and return paths to output files.
 
@@ -400,6 +454,9 @@ def run_batch(
     config : BatchConfig
     optics_config : dict or None
         Per-material optical properties (for multi-bounce mode).
+    detector_mode : str
+        ``"full"`` (tank) or ``"lappd-standalone"`` (single housing).
+        Stored in the output root-group attribute.
 
     Returns
     -------
@@ -412,7 +469,11 @@ def run_batch(
     from annieray.pmt_response import process_pmt_hits
 
     rng = np.random.default_rng(config.seed)
-    accumulator = BatchAccumulator(output_dir=config.output_dir)
+    accumulator = BatchAccumulator(
+        output_dir=config.output_dir,
+        detector_mode=detector_mode,
+        config=config_to_dict(config),
+    )
 
     if config.muon_file is not None:
         _load_muon_file(config.muon_file)
@@ -441,12 +502,14 @@ def run_batch(
         event_n_generated: list[int] = []
         event_n_ckv: list[int] = []
         event_n_sci: list[int] = []
+        event_source_type: list[int] = []
 
         for i in range(n_batch):
             event_id = processed + i
             muon_pos, muon_dir = sample_muon_state(event_id, config, rng, geometry)
 
             if config.light_burst:
+                src_type = SOURCE_LIGHT_BURST
                 cx, cy, cz = config.burst_position or (0, 0, 1940)
                 muon_pos = (cx, cy, cz, config.burst_t0)
                 muon_dir = (0.0, 0.0, -1.0)
@@ -457,6 +520,7 @@ def run_batch(
                 event_src_ckv = len(o)
                 event_src_sci = 0
             else:
+                src_type = SOURCE_TRACK
                 track_length = compute_track_length(muon_pos, muon_dir, geometry)
                 o, d, ct = generate_cherenkov_photons(
                     muon_pos, muon_dir, config.photons_per_cm,
@@ -491,6 +555,7 @@ def run_batch(
             event_n_generated.append(len(o))
             event_n_ckv.append(event_src_ckv)
             event_n_sci.append(event_src_sci)
+            event_source_type.append(src_type)
 
         # Concatenate into one big array
         all_origins = np.vstack(batch_origins)
@@ -579,6 +644,7 @@ def run_batch(
                     "n_generated_sci": event_n_sci[i],
                     "n_detected_ckv": n_ckv_det,
                     "n_detected_sci": n_sci_det,
+                    "source_type": event_source_type[i],
                 }
                 accumulator.append_event(
                     event_id, event_hits, pmt_responses,
@@ -614,8 +680,11 @@ def run_batch(
             if accumulator._n_muon_rows > 0:
                 paths["muon_truth"] = h5_path
                 print(f"  Wrote {h5_path} ({accumulator._n_muon_rows} muon truth rows)")
-            if accumulator._n_lappd_events > 0:
-                print(f"  LAPPD readouts stored for {accumulator._n_lappd_events} events")
+            if accumulator._n_lappd_rows > 0:
+                paths["lappd_readouts"] = h5_path
+                print(f"  LAPPD readouts written to {h5_path} "
+                      f"({accumulator._n_lappd_rows} rows, "
+                      f"{accumulator._n_lappd_events} events)")
             return paths
 
     return {}

@@ -1,6 +1,7 @@
 """HDF5 I/O helpers for batch output, single-shot hits, and readback."""
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 import h5py
@@ -24,7 +25,11 @@ PHOTON_HIT_DTYPE = np.dtype([
     ("photon_source", "i4"),
 ])
 
-# Muon truth (17 columns)
+# Per-event light-source truth (17 + 5 columns).
+# The table records the "true" parameters of whatever produced the light
+# in each event.  ``source_type`` discriminates between the definitions
+# (see SOURCE_TRACK / SOURCE_LIGHT_BURST / SOURCE_SPOT below); columns that
+# do not apply to a given source type are NaN.
 MUON_TRUTH_DTYPE = np.dtype([
     ("event_id", "i8"),
     ("pos_x", "f4"),
@@ -43,7 +48,18 @@ MUON_TRUTH_DTYPE = np.dtype([
     ("n_generated_sci", "i4"),
     ("n_detected_ckv", "i4"),
     ("n_detected_sci", "i4"),
+    # Light-source discriminator and spot-beam extras
+    ("source_type", "i4"),          # 0 = tracked Cherenkov muon, 1 = light burst, 2 = spot beam
+    ("spread_deg", "f4"),           # spot-beam dispersion (°); NaN for track/burst
+    ("intercept_x", "f4"),          # PC target the beam was aimed at (mm); NaN when unused
+    ("intercept_y", "f4"),
+    ("intercept_z", "f4"),
 ])
+
+# Light-source types for the per-event truth table (muon_truth.source_type)
+SOURCE_TRACK = 0          # tracked particle (muon) -> Cherenkov cone along a track
+SOURCE_LIGHT_BURST = 1    # isotropic light burst at a point
+SOURCE_SPOT = 2           # directed spot beam (origin + dir + spread), optional PC intercept
 
 # PMT responses (5 columns)
 PMT_RESPONSE_DTYPE = np.dtype([
@@ -52,6 +68,17 @@ PMT_RESPONSE_DTYPE = np.dtype([
     ("charge", "f4"),
     ("time", "f4"),
     ("n_hits", "i4"),
+])
+
+# Full LAPPD readout traces (one row per (event, LAPPD)).
+# side0/side1 are the 28-strip x 256-time-bin voltage-time matrices (V).
+LAPPD_READOUT_DTYPE = np.dtype([
+    ("event_id", "i8"),
+    ("lappd_index", "i4"),
+    ("side0", "f4", (28, 256)),
+    ("side1", "f4", (28, 256)),
+    ("n_photons", "i4"),
+    ("n_passed_qe", "i4"),
 ])
 
 # Detector registry (7 columns)
@@ -91,9 +118,14 @@ DTYPES = {
     "photon_hits": PHOTON_HIT_DTYPE,
     "muon_truth": MUON_TRUTH_DTYPE,
     "pmt_responses": PMT_RESPONSE_DTYPE,
+    "lappd_readouts": LAPPD_READOUT_DTYPE,
     "detectors": DETECTOR_DTYPE,
     "hits": FULL_HIT_DTYPE,
 }
+
+# Schema version stamped into every output.h5 root group.
+SCHEMA_VERSION = 1
+FORMAT_NAME = "annieray-batch"
 
 
 # ---------------------------------------------------------------------------
@@ -120,6 +152,20 @@ def append_table(f: h5py.File, name: str, data: np.ndarray) -> None:
 # Read helpers
 # ---------------------------------------------------------------------------
 
+def _records_to_dataframe(records: np.ndarray) -> pd.DataFrame:
+    """Build a DataFrame from a structured array.
+
+    Structured dtypes may contain sub-array fields (e.g. the (28, 256)
+    LAPPD readout matrices).  pandas cannot vectorise those, so each row's
+    sub-array is stored as an object (2-D ndarray) column entry.
+    """
+    cols: dict[str, object] = {}
+    for name in records.dtype.names:
+        val = records[name]
+        cols[name] = list(val) if val.ndim > 1 else val
+    return pd.DataFrame(cols)
+
+
 def load_table(path: Path | str, table: str) -> pd.DataFrame:
     """Load an HDF5 table as a pandas DataFrame.
 
@@ -131,7 +177,7 @@ def load_table(path: Path | str, table: str) -> pd.DataFrame:
             if dtype is None:
                 return pd.DataFrame()
             return pd.DataFrame({n: [] for n in dtype.names})
-        return pd.DataFrame(f[table][()])
+        return _records_to_dataframe(f[table][()])
 
 
 def load_all(path: Path | str) -> dict[str, pd.DataFrame]:
@@ -145,8 +191,20 @@ def load_event_lappd_readout(path: str | Path, event_id: int
 
     Returns ``{detector_index: (28, 256, 2) readout}``, or ``None``
     when *event_id* has no LAPPD readout data.
+
+    Supports the standardized flat ``lappd_readouts`` table (schema v1)
+    and falls back to the older per-event group layout (``event_N/...``).
     """
     with h5py.File(path, "r") as f:
+        if "lappd_readouts" in f:
+            table = f["lappd_readouts"][:]
+            recs = table[table["event_id"] == event_id]
+            if len(recs) == 0:
+                return None
+            return {
+                int(r["lappd_index"]): np.stack([r["side0"], r["side1"]], axis=-1)
+                for r in recs
+            }
         grp = f.get(f"event_{event_id}")
         if grp is None or "lappd_readouts" not in grp:
             return None
@@ -161,6 +219,169 @@ def read_attrs(path: Path | str) -> dict:
     """Read root-group attributes (e.g. tank metadata)."""
     with h5py.File(path, "r") as f:
         return dict(f.attrs)
+
+
+# ---------------------------------------------------------------------------
+# Parsing framework: BatchReader / EventData
+# ---------------------------------------------------------------------------
+
+def _nan_line_source(row) -> dict:
+    """Extract source-type extras from a muon_truth row as plain Python types."""
+    nan_cols = ("intercept_x", "intercept_y", "intercept_z")
+    if np.all([np.isnan(row[c]) for c in nan_cols]):
+        intercept = None
+    else:
+        intercept = tuple(float(row[c]) for c in nan_cols)
+    return {
+        "event_id": int(row["event_id"]),
+        "source_type": int(row["source_type"]),
+        "spread_deg": float(row["spread_deg"]),
+        "intercept": intercept,
+    }
+
+
+@dataclass
+class EventData:
+    """One event's full recorded data, bundled for analysis."""
+
+    event_id: int
+    truth: dict                            # muon_truth row (all fields, plain floats)
+    hits: pd.DataFrame                     # photon_hits for this event
+    pmt_responses: pd.DataFrame            # pmt_responses for this event (may be empty)
+    lappd_readouts: dict[int, np.ndarray]  # {lappd_index: (28, 256, 2) readout}
+
+    @property
+    def source_type(self) -> int:
+        return int(self.truth["source_type"])
+
+    def is_track(self) -> bool:
+        """True when the light came from a tracked particle (Cherenkov muon)."""
+        return self.source_type == SOURCE_TRACK
+
+    def is_beam(self) -> bool:
+        """True when the light came from a directed spot beam."""
+        return self.source_type == SOURCE_SPOT
+
+    def n_generated(self) -> int:
+        return int(self.truth["n_generated"])
+
+    def n_detected(self) -> int:
+        return int(self.truth["n_detected"])
+
+
+class BatchReader:
+    """Read the standardized ``output.h5`` batch schema.
+
+    Both the full-detector ``annieray batch`` and the standalone-LAPPD
+    ``annieray batch-lappd`` commands write this schema, so a single reader
+    works for either mode.
+
+    Examples
+    --------
+    >>> reader = BatchReader("results/output.h5")
+    >>> reader.summary()
+    >>> for ev in reader.iter_events():
+    ...     print(ev.event_id, ev.truth["theta_deg"], ev.n_detected())
+    >>> ev = reader.load_event(3)
+    >>> ev.lappd_readouts  # {lappd_index: (28, 256, 2)}
+    """
+
+    def __init__(self, path: Path | str):
+        self.path = Path(path)
+        if not self.path.exists():
+            raise FileNotFoundError(str(self.path))
+        self._attrs: dict | None = None
+        self._event_ids: list[int] | None = None
+
+    # -- file-level ---------------------------------------------------------
+
+    def summary(self) -> dict:
+        """Return file-level metadata: schema version, mode, tables, events."""
+        with h5py.File(self.path, "r") as f:
+            attrs = dict(f.attrs)
+            tables = [k for k in DTYPES if k in f]
+            return {
+                "schema_version": attrs.get("schema_version"),
+                "format": attrs.get("format"),
+                "detector_mode": attrs.get("detector_mode"),
+                "config": attrs.get("config"),
+                "tables": tables,
+                "n_events": len(self.event_ids()),
+            }
+
+    def attrs(self) -> dict:
+        if self._attrs is None:
+            self._attrs = read_attrs(self.path)
+        return dict(self._attrs)
+
+    def event_ids(self) -> list[int]:
+        """Sorted event IDs present in the truth table."""
+        if self._event_ids is None:
+            truth = load_table(self.path, "muon_truth")
+            if truth.empty:
+                self._event_ids = []
+            else:
+                self._event_ids = sorted(truth["event_id"].unique().tolist())
+        return list(self._event_ids)
+
+    def load_table(self, name: str) -> pd.DataFrame:
+        """Load one standardized table (photon_hits, muon_truth, ...)."""
+        return load_table(self.path, name)
+
+    # -- per-event ----------------------------------------------------------
+
+    def load_event(self, event_id: int) -> EventData:
+        """Bundle everything recorded for *event_id* into an EventData."""
+        truth = load_table(self.path, "muon_truth")
+        row = truth[truth["event_id"] == event_id]
+        if row.empty:
+            raise KeyError(f"event_id {event_id} not found in muon_truth")
+
+        t = row.iloc[0]
+        meta = {
+            key: (float(val) if key != "event_id" and key != "source_type" else int(val))
+            for key, val in t.items()
+            if key not in ("spread_deg", "intercept_x", "intercept_y", "intercept_z")
+        }
+        meta.update(_nan_line_source(t))
+
+        hits = load_table(self.path, "photon_hits")
+        pmts = load_table(self.path, "pmt_responses")
+        lappd = load_event_lappd_readout(self.path, event_id) or {}
+
+        return EventData(
+            event_id=int(event_id),
+            truth=meta,
+            hits=hits[hits["event_id"] == event_id],
+            pmt_responses=pmts[pmts["event_id"] == event_id] if not pmts.empty
+            else pd.DataFrame(),
+            lappd_readouts=lappd,
+        )
+
+    def iter_events(self) -> "BatchReader._EventIterator":
+        return self._EventIterator(self)
+
+    class _EventIterator:
+        def __init__(self, reader: "BatchReader"):
+            self._reader = reader
+            self._ids = reader.event_ids()
+            self._i = 0
+
+        def __iter__(self):
+            return self
+
+        def __next__(self) -> EventData:
+            if self._i >= len(self._ids):
+                raise StopIteration
+            ev = self._reader.load_event(self._ids[self._i])
+            self._i += 1
+            return ev
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
 
 
 # ---------------------------------------------------------------------------

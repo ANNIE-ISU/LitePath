@@ -31,6 +31,16 @@ python -m annieray batch \
     --events 100 --photons-per-cm 0 \
     --scintillation --photons-per-cm-scint 100
 
+# Batch mode on a standalone LAPPD module (same output format as 'batch')
+python -m annieray batch-lappd \
+    --source cherenkov --sample-mode grid \
+    --grid-steps 9 5 --photons-per-cm 150 --lappd-response
+
+# Standalone LAPPD batch with a focused spot beam onto the photocathode
+python -m annieray batch-lappd \
+    --source spot --n-photons 5000 --spread-deg 2 \
+    --intercept 0 -45 3.5 --lappd-response
+
 # Direction fit for a single event (grid scan, runs raytracing per hypothesis)
 python -m annieray fit output.h5 --event 0 --show
 
@@ -99,7 +109,8 @@ python -m annieray batch [flags]
 |-------|----------|
 | `photon_hits` | Per-photon hit records, incl. `photon_source` (0=Cherenkov, 1=scintillation) |
 | `pmt_responses` | Digitised charges and hit times (when `--pmt-response`) |
-| `muon_truth` | Per-event truth (position, direction, track length, etc.) with per-source generated/detected counts |
+| `lappd_readouts` | Full digital LAPPD traces, one row per (event, LAPPD) (when `--lappd-response`) |
+| `muon_truth` | Per-event truth (source type, position, direction, track length, etc.) with per-source generated/detected counts |
 | `detectors` | Detector registry (system, index, position, label, panel) |
 | `metadata` | Tank dimensions and geometry parameters |
 
@@ -107,6 +118,51 @@ The `photon_hits.arrival_time` column already includes the scintillation
 decay delay for scintillation photons, so Cherenkov and scintillation
 timing can be studied separately via `photon_source` without any
 additional book-keeping.
+
+The exact schema (column layouts, root attributes, per-mode table
+presence, and the truth/source-type conventions) is documented in
+[`BATCH_OUTPUT.md`](BATCH_OUTPUT.md); the `BatchReader` class in
+`annieray/io_h5.py` is the canonical way to load any batch output file.
+
+### `batch-lappd` — Batch-mode events on a standalone LAPPD module
+
+Batch counterpart of the interactive `viz-lappd` viewer. Builds a single
+ANNIE-housing LAPPD module, shoots light at the photocathode, optionally
+runs the LAPPD digitizer, and writes **the same HDF5 schema** as `batch`
+(see `docs/BATCH_OUTPUT.md`), so `fit` and `scripts/load_batch.py` work
+unchanged.
+
+Two light sources, matching `viz-lappd`:
+
+* `--source cherenkov` — a tracked muon; Cherenkov photons along a chord
+  of the housing box. Sampled with `--sample-mode random|grid|fixed`.
+* `--source spot` — a directed diverging beam from a point, optionally
+  aimed at a specific photocathode point via `--intercept x y z`.
+
+```
+python -m annieray batch-lappd [flags]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--source` | `cherenkov` | Light source: `cherenkov` (tracked muon cone) or `spot` (directed beam) |
+| `--sample-mode` | `random` | Where to place the source: `random`, `grid`, or `fixed` |
+| `--events` | `-1` | Number of events (default: grid `NX*NZ`, muon-file lines, or 100) |
+| `--grid-steps NX NZ` | `9 5` | Grid size for `--sample-mode grid` |
+| `--muon-fixed` | — | Fixed source: `"x y z t0 dx dy dz"` (7 floats) |
+| `--muon-file` | — | File with one `x y z t0 dx dy dz` topology per line |
+| `--photons-per-cm` | 150 | Cherenkov photons per cm along the muon track |
+| `--n-photons` | 5000 | Photons in the `spot` beam |
+| `--spread-deg` | 2.0 | Angular spread (deg) of the launched source |
+| `--intercept X Y Z` | — | Aim target (photocathode intercept point); overrides aiming at the PC centre and is recorded in the truth table |
+| `--wavelength` | 350.0 | Photon wavelength (nm) |
+| `--lappd-response` | false | Enable LAPPD digital readout pipeline (writes `lappd_readouts`) |
+| `--max-bounces` | 0 | Number of surface reflections per photon (0 = off) |
+| `--water-absorption-mm` | 0.0 | Water absorption length in mm (0 = off) |
+| `--water-scattering-mm` | 0.0 | Rayleigh scattering length in mm (0 = off) |
+| `--output-dir` / `-o` | `results/` | Output directory (writes `output.h5`) |
+| `--no-record` | false | Skip writing per-event output files |
+| `--seed` | None | Random seed |
 
 ### `fit` — Direction fitting from batch output
 
@@ -475,9 +531,10 @@ path. Both are off by default (`0.0` = disabled).
 
 | File | Role |
 |------|------|
-| `cli.py` | CLI parser, all subcommands (`batch`, `fit`, `viz-server`, etc.) |
+| `cli.py` | CLI parser, all subcommands (`batch`, `batch-lappd`, `fit`, `viz-server`, etc.) |
 | `tracer.py` | Geometry dataclass, `build_geometry()`, Taichi trace kernel, `trace_muon_light()`/`trace_cherenkov()` |
 | `batch.py` | Batch-mode event loop, `BatchAccumulator` for HDF5 output |
+| `lappd_batch.py` | Standalone-LAPPD batch runner (`batch-lappd`), `sample_source_state()` |
 | `cherenkov.py` | Vectorised Cherenkov / isotropic photon generator |
 | `scintillation.py` | Isotropic, delayed wbLS scintillation photon generator |
 | `fitting.py` | `grid_scan_direction()`, `load_observed_event()`, `ScanResult`/`ObservedEvent` |

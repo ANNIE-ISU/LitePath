@@ -881,12 +881,6 @@ spotLight.shadow.bias = 0;
 spotLight.shadow.normalBias = 0;
 scene.add(spotLight);
 
-// Grid helper (horizontal, Z-up frame)
-const grid = new THREE.GridHelper(3000, 20, 0x8899aa, 0x667788);
-grid.position.z = 2000;
-grid.receiveShadow = false;
-scene.add(grid);
-
 // ---- Labeled axes + origin ----
 function makeTextSprite(text, color) {
     const canvas = document.createElement('canvas');
