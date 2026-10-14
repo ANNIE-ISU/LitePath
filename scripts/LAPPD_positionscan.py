@@ -49,14 +49,14 @@ def main() -> None:
         return
 
     # ANNIE LAPPDs have indices 132, 133, 134
-    LAPPD_Indices = [132, 133, 134] #Tried changing the indices but to no avail
+    LAPPD_Indices = [132, 133, 134] 
     lappd_hits = hits[hits["detector_system"].isin(LAPPD_Indices)]
     if lappd_hits.empty:
         print("No LAPPD hits found. Using hits_check.txt to look read in data")
 
     
-    lappd_hits = pd.read_csv("hits_check.txt", sep="\t") #Added this to read in the hits_check.txt file as a temporary way to use the data
-    lappd_hits = lappd_hits[lappd_hits["detector_index"].isin(LAPPD_Indices)]
+    #lappd_hits = pd.read_csv("hits_check.txt", sep="\t") #Added this to read in the hits_check.txt file as a temporary way to use the data, but the line below should work
+    lappd_hits = hits[hits["detector_index"].isin(LAPPD_Indices)]
     print(lappd_hits.to_string()) #Checking inside 
     counts = lappd_hits.groupby(["event_id", "detector_index"]).size().reset_index(name="n_hits")
     pivoted = counts.pivot(index="event_id", columns="detector_index", values="n_hits").fillna(0).astype(int)
