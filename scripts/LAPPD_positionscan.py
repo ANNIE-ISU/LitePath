@@ -15,6 +15,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib import colors
+from matplotlib.patches import Circle
+from matplotlib.collections import PatchCollection
 
 from annieray.io_h5 import load_table
 
@@ -54,10 +56,11 @@ def main() -> None:
     if lappd_hits.empty:
         print("No LAPPD hits found. Using hits_check.txt to look read in data")
 
+
     
     #lappd_hits = pd.read_csv("hits_check.txt", sep="\t") #Added this to read in the hits_check.txt file as a temporary way to use the data, but the line below should work
     lappd_hits = hits[hits["detector_index"].isin(LAPPD_Indices)]
-    print(lappd_hits.to_string()) #Checking inside 
+    #print(lappd_hits.to_string()) #Checking inside 
     counts = lappd_hits.groupby(["event_id", "detector_index"]).size().reset_index(name="n_hits")
     pivoted = counts.pivot(index="event_id", columns="detector_index", values="n_hits").fillna(0).astype(int)
 
@@ -85,7 +88,13 @@ def main() -> None:
     data = merged[["pos_x", "pos_z"] + LAPPD_Indices].copy()
     data["pos_x"] = xs
     data["pos_z"] = zs
-
+    print(data.head())
+    #Getting unique values for x and z coords (only using the x coods since this is a square sweep)
+    uniqueX = np.unique(data["pos_x"])
+    uniqueZ = np.unique(data["pos_z"])
+    
+    radius = (uniqueX[1] - uniqueX[0])/2 # Circle radius |We always assume square sweep and may need to change this later
+    
     titles = [f"LAPPD {idx} Hits from Muon Vertex Positions" for idx in LAPPD_Indices]
 
     for i, idx in enumerate(LAPPD_Indices):
@@ -93,18 +102,36 @@ def main() -> None:
         for _, row in data.iterrows():
             xi, zi = x_idx[row["pos_x"]], z_idx[row["pos_z"]]
             z2d[zi, xi] = row[idx]
-
-        fig, ax = plt.subplots()
         vmax = np.nanmax(z2d)
-        norm = colors.LogNorm(vmin=1, vmax=vmax) if vmax > 1 else None
+        norm = colors.LogNorm(vmin=1, vmax=vmax) if vmax > 1 else None #Is used to get log scale to apply to the color map
+
+        #This is for the cirlcle version       
+        cmap = plt.get_cmap('viridis') #Sets the color map scheme
+        patch_values = [row[idx] for _, row in data.iterrows()] #Gets the values for the circles to be plotted based on the number of hits
+        facecolor = [cmap(norm(v)) if np.isfinite(v) else (0,0,0,0) for v in patch_values] #Applies color map to facecolor variable and sets the circles to default if there are no hits 
+        circles = [Circle((row["pos_x"], row["pos_z"]), radius=radius) for _, row in data.iterrows()] #Creates the circles based on the muon positions and radius the user specifies earlier in the code
+        collection_circles = PatchCollection(circles, facecolor=facecolor, edgecolor='none', linewidth=0.5)
+
+        #Plotting
+        fig,ax = plt.subplots()
+        ax.add_collection(collection_circles)
+
+        """
+        Old color mesh code that was used 
         mesh = ax.pcolormesh(
             u_x, u_z, z2d, cmap="viridis", shading="auto",
             edgecolors="r", linewidths=0.5, norm=norm,
         )
+        """
+
+        #Getting colors to use on the color bar
+        scalar_Color_Array = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+        
         ax.set_title(titles[i])
         ax.set_xlabel("X Position (m)")
-        ax.set_ylabel("Z Position (m)")
-        fig.colorbar(mesh, label="Number of Hits")
+        ax.set_ylabel("Y Position (m)") #This needs to be y and not z as it is outward facing
+        fig.colorbar(scalar_Color_Array, ax=ax, label="Number of Hits")
+        ax.set_aspect('equal')  
         plt.show()
 
 
