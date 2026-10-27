@@ -305,26 +305,24 @@ def run_lappd_batch(
     print(f"  Total: {time.time() - t_start:.1f}s for {config.n_events} events")
 
     if config.record_events:
-        try:
-            accumulator.close()
-        finally:
-            paths: dict[str, Path] = {}
-            h5_path = config.output_dir / H5_OUTPUT_NAME
-            if accumulator._n_photon_rows > 0:
-                paths["photon_hits"] = h5_path
-                print(f"  Wrote {h5_path} ({accumulator._n_photon_rows} photon rows)")
-            if accumulator._n_muon_rows > 0:
-                paths["muon_truth"] = h5_path
-                print(f"  Wrote {h5_path} ({accumulator._n_muon_rows} muon truth rows)")
-            if accumulator._n_lappd_rows > 0:
-                paths["lappd_readouts"] = h5_path
-                print(f"  LAPPD readouts: {accumulator._n_lappd_rows} rows "
-                      f"across {accumulator._n_lappd_events} events")
-            if h5_path.exists() and len(geometry.detectors):
-                from litepath.io_h5 import write_detectors, write_metadata
-                write_metadata(h5_path, {"detector_mode": "lappd-standalone"})
-                write_detectors(h5_path, geometry.detectors)
-                paths["detectors"] = h5_path
-            return paths
+        accumulator.close()
+        paths: dict[str, Path] = {}
+        h5_path = config.output_dir / H5_OUTPUT_NAME
+        if accumulator._n_photon_rows > 0:
+            paths["photon_hits"] = h5_path
+            print(f"  Wrote {h5_path} ({accumulator._n_photon_rows} photon rows)")
+        if accumulator._n_muon_rows > 0:
+            paths["muon_truth"] = h5_path
+            print(f"  Wrote {h5_path} ({accumulator._n_muon_rows} muon truth rows)")
+        if accumulator._n_lappd_rows > 0:
+            paths["lappd_readouts"] = h5_path
+            print(f"  LAPPD readouts: {accumulator._n_lappd_rows} rows "
+                  f"across {accumulator._n_lappd_events} events")
+        if h5_path.exists() and len(geometry.detectors):
+            from litepath.io_h5 import write_detectors, write_metadata
+            write_metadata(h5_path, {"detector_mode": "lappd-standalone"})
+            write_detectors(h5_path, geometry.detectors)
+            paths["detectors"] = h5_path
+        return paths
 
     return {}

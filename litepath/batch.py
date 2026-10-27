@@ -689,25 +689,23 @@ def run_batch(
           f"({config.n_events / elapsed:.1f} ev/s)")
 
     if config.record_events:
-        try:
-            accumulator.close()
-        finally:
-            paths = {}
-            h5_path = config.output_dir / H5_OUTPUT_NAME
-            if accumulator._n_photon_rows > 0:
-                paths["photon_hits"] = h5_path
-                print(f"  Wrote {h5_path} ({accumulator._n_photon_rows} photon rows)")
-            if accumulator._n_pmt_rows > 0:
-                paths["pmt_responses"] = h5_path
-                print(f"  Wrote {h5_path} ({accumulator._n_pmt_rows} PMT response rows)")
-            if accumulator._n_muon_rows > 0:
-                paths["muon_truth"] = h5_path
-                print(f"  Wrote {h5_path} ({accumulator._n_muon_rows} muon truth rows)")
-            if accumulator._n_lappd_rows > 0:
-                paths["lappd_readouts"] = h5_path
-                print(f"  LAPPD readouts written to {h5_path} "
-                      f"({accumulator._n_lappd_rows} rows, "
-                      f"{accumulator._n_lappd_events} events)")
-            return paths
+        accumulator.close()
+        paths = {}
+        h5_path = config.output_dir / H5_OUTPUT_NAME
+        if accumulator._n_photon_rows > 0:
+            paths["photon_hits"] = h5_path
+            print(f"  Wrote {h5_path} ({accumulator._n_photon_rows} photon rows)")
+        if accumulator._n_pmt_rows > 0:
+            paths["pmt_responses"] = h5_path
+            print(f"  Wrote {h5_path} ({accumulator._n_pmt_rows} PMT response rows)")
+        if accumulator._n_muon_rows > 0:
+            paths["muon_truth"] = h5_path
+            print(f"  Wrote {h5_path} ({accumulator._n_muon_rows} muon truth rows)")
+        if accumulator._n_lappd_rows > 0:
+            paths["lappd_readouts"] = h5_path
+            print(f"  LAPPD readouts written to {h5_path} "
+                  f"({accumulator._n_lappd_rows} rows, "
+                  f"{accumulator._n_lappd_events} events)")
+        return paths
 
     return {}
