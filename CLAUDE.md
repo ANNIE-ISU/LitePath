@@ -25,8 +25,16 @@ changed before starting.
 
 ## Pending Work (prioritised)
 
-1. **Fix bugs** — see `BUGS.md` for the full list. Fix critical bugs (BUG-1 to
-   BUG-4) first, run the test suite after each fix.
+1. **Fix bugs** — tracked as GitHub issues (see `BUGS.md` for the mapping).
+   Priorities revised by the maintainer on 2026-10-27 (the severity headings in
+   `BUGS.md` are the original review's and are out of date):
+   - **Fix now (`critical`):** BUG-3 (#4), BUG-5 (#6), BUG-7 (#8)
+   - **Minor, in v0.2:** BUG-6 (#7) — current work uses the housed ANNIE LAPPD
+     (system 2); BUG-1 (#2) — `run --mode uniform` is unused and may be removed;
+     BUG-8, BUG-9, BUG-10
+   - **Backlog (no milestone):** BUG-4 (#5) — tracks are metre-scale for now;
+     BUG-2 (#3) — reclassified as an enhancement (future wavelength feature)
+   Run the test suite after each fix; put "Fixes #N" in the commit message.
 2. **Rename to LitePath** — DONE (2026-10-26/27): package, CLI, imports, HDF5
    format name, docs, GitHub repo. Only the local folder name remains (optional).
 3. **GitHub project infrastructure** — DONE for bugs (2026-10-27): labels

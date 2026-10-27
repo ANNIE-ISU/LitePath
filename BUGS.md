@@ -1,6 +1,9 @@
 # Known Bugs
 
-Identified during code review (2026-10-26). Ordered by severity.
+Identified during code review (2026-10-26). Ordered by the review's original severity.
+
+> **Priorities were revised on 2026-10-27.** The current priority of each bug is the
+> label on its GitHub issue (see the table at the bottom), not the headings below.
 
 ## 🔴 Critical — Fix before training / fitting
 
