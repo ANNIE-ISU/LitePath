@@ -83,7 +83,7 @@ def _dir_from_angles(theta_deg: float, phi_deg: float) -> tuple[float, float, fl
 
     Uses the batch/muon-truth convention:
         θ =  0° → (0, 0, −1)  downward  (dz = −cos θ)
-        θ = 90° → (sinφ, cosφ, 0)  horizontal
+        θ = 90° → (cosφ, sinφ, 0)  horizontal
         θ = 180° → (0, 0, +1)  upward
     """
     th = math.radians(theta_deg)
@@ -148,7 +148,8 @@ def load_observed_event(h5_path: Path, event_id: int) -> ObservedEvent:
         true_pos = (float(row["pos_x"]), float(row["pos_y"]), float(row["pos_z"]))
         true_dir = (float(row["dir_x"]), float(row["dir_y"]), float(row["dir_z"]))
         true_theta = float(row["theta_deg"])
-        true_phi = float(row["phi_deg"])
+        # Files written before #6 store phi in [-180, 180]; the fit grid uses [0, 360).
+        true_phi = float(row["phi_deg"]) % 360.0
         true_t0 = float(row["t0"])
         track_cm = row["track_length_mm"] / 10.0
         # Handle old files where track_length_mm was actually stored in meters

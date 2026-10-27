@@ -294,7 +294,8 @@ class BatchAccumulator:
         if norm > 0:
             dx, dy, dz = dx/norm, dy/norm, dz/norm
         theta_deg = float(np.degrees(np.arccos(-dz)))
-        phi_deg = float(np.degrees(np.arctan2(dy, dx)))
+        # Azimuth in [0, 360) to match the fit grid (--grid-phi 0 360).
+        phi_deg = float(np.degrees(np.arctan2(dy, dx))) % 360.0
 
         arr = np.zeros(1, dtype=MUON_TRUTH_DTYPE)
         arr["event_id"] = event_id

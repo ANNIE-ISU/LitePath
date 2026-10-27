@@ -936,7 +936,8 @@ def fit_command(args: argparse.Namespace) -> None:
     print(f"\nBest fit: θ={result.best_theta:.1f}°, φ={result.best_phi:.1f}°")
     if result.true_theta is not None:
         d_theta = result.best_theta - result.true_theta
-        d_phi = result.best_phi - result.true_phi
+        # Wrap to [-180, 180) so 359° vs 1° reads as 2°, not 358°.
+        d_phi = (result.best_phi - result.true_phi + 180.0) % 360.0 - 180.0
         print(f"  True:    θ={result.true_theta:.1f}°, φ={result.true_phi:.1f}°")
         print(f"  Δθ={d_theta:+.1f}°, Δφ={d_phi:+.1f}°")
     print(f"  LL = {result.best_score:.1f}")

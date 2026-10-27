@@ -80,7 +80,7 @@ columns that do not apply to a given source type are NaN.
 | `t0` | float32 | Emission start time (ns) |
 | `dir_x/y/z` | float32 | Unit direction: muon direction / unused / beam aim direction |
 | `theta_deg` | float32 | Polar angle from vertical (°); 0 = downward (−z) |
-| `phi_deg` | float32 | Azimuthal angle in XY (°); 0 = +x |
+| `phi_deg` | float32 | Azimuthal angle in XY (°), in [0, 360); 0 = +x |
 | `track_length_mm` | float32 | Chord through the detector (mm); 0 for point sources |
 | `n_generated` | int32 | Total photons generated |
 | `n_detected` | int32 | Photons detected by PMTs / LAPPDs |
@@ -101,7 +101,9 @@ Source-type semantics:
 
 Direction conventions match the main detector: `theta_deg` is the polar
 angle from vertical with 0° = downward (−z); `phi_deg` is the azimuth in
-the XY plane with 0° = +x.
+the XY plane with 0° = +x, in [0°, 360°).  Files written before
+[#6](https://github.com/ANNIE-ISU/LitePath/issues/6) store `phi_deg` in
+[−180°, 180°]; `litepath fit` wraps it on read.
 
 ### `lappd_readouts`
 

@@ -269,14 +269,15 @@ def litepath_angles(direction: np.ndarray) -> tuple[float, float]:
 
     ``theta`` is the polar angle measured from *downward* (-z):
     0° = straight down, 90° = horizontal, 180° = straight up.
-    ``phi`` is the azimuth ``atan2(dy, dx)`` in the horizontal plane.
+    ``phi`` is the azimuth ``atan2(dy, dx)`` in the horizontal plane,
+    wrapped to [0, 360) to match the fit grid.
     """
     d = np.asarray(direction, dtype=np.float64)
     norm = np.linalg.norm(d)
     if norm > 0:
         d = d / norm
     theta = math.degrees(math.acos(float(np.clip(-d[2], -1.0, 1.0))))
-    phi = math.degrees(math.atan2(float(d[1]), float(d[0])))
+    phi = math.degrees(math.atan2(float(d[1]), float(d[0]))) % 360.0
     return theta, phi
 
 

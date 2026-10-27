@@ -103,8 +103,8 @@ python scripts/event_display.py results/benchmark/mc.h5 --charge
 
 | | theta | phi |
 |---|---|---|
-| litepath | `acos(-dz)` — 0° = straight down | `atan2(dy, dx)` |
-| WAGLE | `acos(dirZ)` — from the beam axis (+z) | `atan2(dy, dx)` |
+| litepath | `acos(-dz)` — 0° = straight down | `atan2(dy, dx)`, in [0°, 360°) |
+| WAGLE | `acos(dirZ)` — from the beam axis (+z) | `atan2(dy, dx)`, in [−180°, 180°] |
 
 Both are written out (`theta_deg`/`phi_deg` and `root_theta_deg`/`root_phi_deg`)
 so no conversion is needed downstream.
