@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Extract a WAGLE MC muon track as an annieray muon topology file.
+"""Extract a WAGLE MC muon track as an litepath muon topology file.
 
-The result can be fed straight to ``annieray batch --muon-file`` so that the
+The result can be fed straight to ``litepath batch --muon-file`` so that the
 raytracer reproduces the light pattern of a specific WAGLE Monte-Carlo event:
 
     python scripts/mc_muon_file.py results/benchmark/mc.h5 --event 0 \
         --out /tmp/ev0.txt
-    python -m annieray batch --muon-file /tmp/ev0.txt --events 1 \
+    python -m litepath batch --muon-file /tmp/ev0.txt --events 1 \
         --pmt-csv PMTPositions_Scan.txt --surfboard 3
     python scripts/event_display.py results/benchmark/mc.h5 \
         --compare results/raytrace/output.h5 --compare-event 0 --charge
@@ -15,7 +15,7 @@ Input can be either a converted benchmark file (``results/benchmark/mc.h5``)
 or the original WAGLE ROOT file (``benchmarking_data/MCTree_*.root``).
 
 The muon file format is ``x y z t0 dx dy dz`` with positions in mm, ``t0`` in
-seconds and the direction a unit vector, in the annieray world frame.
+seconds and the direction a unit vector, in the litepath world frame.
 """
 
 import argparse
@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def _from_h5(path: Path, event_id: int):
-    from annieray.io_h5 import load_table
+    from litepath.io_h5 import load_table
 
     truth = load_table(path, "muon_truth")
     rows = truth[truth["event_id"] == event_id]
@@ -41,7 +41,7 @@ def _from_h5(path: Path, event_id: int):
 
 
 def _from_root(path: Path, event_id: int, tree: str):
-    from annieray.benchmark import RootTreeReader
+    from litepath.benchmark import RootTreeReader
 
     reader = RootTreeReader(path, tree=tree)
     for i, ev in enumerate(reader.iter_events()):
@@ -52,7 +52,7 @@ def _from_root(path: Path, event_id: int, tree: str):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Write a WAGLE MC muon track as an annieray muon file")
+        description="Write a WAGLE MC muon track as an litepath muon file")
     parser.add_argument("input", type=Path,
                         help="Benchmark HDF5 (mc.h5) or WAGLE ROOT file")
     parser.add_argument("--event", type=int, default=0, help="Event id")

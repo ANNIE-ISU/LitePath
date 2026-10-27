@@ -95,7 +95,7 @@ def load_pmt_body_meshes() -> dict[int, PMTMeshData]:
     if _body_mesh_cache is not None:
         return _body_mesh_cache
 
-    from annieray.materials import classify_pmt_body
+    from litepath.materials import classify_pmt_body
 
     result: dict[int, PMTMeshData] = {}
     for mi, gn, rc, tn in PMT_BODY_SPECS:
@@ -153,7 +153,7 @@ def load_pmt_hw_meshes() -> dict[int, PMTMeshData]:
     if _hw_mesh_cache is not None:
         return _hw_mesh_cache
 
-    from annieray.materials import classify_pmt_hardware
+    from litepath.materials import classify_pmt_hardware
 
     result: dict[int, PMTMeshData] = {}
     for mi, gn in PMT_HW_SPECS:
@@ -197,7 +197,7 @@ def build_viz_caches() -> tuple[dict[int, bytes], dict[int, bytes],
     ``body_pc`` / ``body_pvc`` may contain ``b""`` for types with no
     photocathode or PVC faces respectively.
     """
-    from annieray.materials import MATERIAL_TABLE, MaterialID
+    from litepath.materials import MATERIAL_TABLE, MaterialID
 
     body_meshes = load_pmt_body_meshes()
     hw_meshes = load_pmt_hw_meshes()

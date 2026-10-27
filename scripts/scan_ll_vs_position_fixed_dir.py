@@ -22,12 +22,12 @@ from pathlib import Path
 
 import numpy as np
 
-from annieray.tracer import (
+from litepath.tracer import (
     build_geometry, trace_cherenkov,
     DET_SYS_PMT, HDI, HDS, H_ARRIVAL,
 )
-from annieray.fitting import load_observed_event
-from annieray.likelihood import poisson_charge_ll
+from litepath.fitting import load_observed_event
+from litepath.likelihood import poisson_charge_ll
 
 
 def _parse_range(s: str) -> tuple[float, float, int]:

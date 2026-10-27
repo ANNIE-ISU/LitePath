@@ -1,11 +1,11 @@
 # Batch Output Format
 
-Both `annieray batch` (full detector) and `annieray batch-lappd`
+Both `litepath batch` (full detector) and `litepath batch-lappd`
 (standalone LAPPD module) write a single HDF5 file — `output.h5` in the
 output directory — using a **shared schema** so analysis code can load any
 batch output the same way.
 
-Schema version is stamped in the file; see `annieray/io_h5.py` for the
+Schema version is stamped in the file; see `litepath/io_h5.py` for the
 authoritative dtype definitions (`SCHEMA_VERSION`, `*_DTYPE`).
 
 ## Files
@@ -23,7 +23,7 @@ Set on the HDF5 root group (`/`) by the batch pipeline:
 
 | Attribute | Value |
 |-----------|-------|
-| `format` | `annieray-batch` |
+| `format` | `litepath-batch` (files written before the LitePath rename say `annieray-batch`) |
 | `schema_version` | `1` |
 | `detector_mode` | `full` \| `lappd-standalone` |
 | `created` | ISO timestamp of the run |
@@ -118,7 +118,7 @@ the run enables the LAPPD response pipeline (`--lappd-response`).
 | `n_passed_qe` | int32 | Photons that passed the quantum-efficiency step |
 
 Time bin width is 0.1 ns (256 bins → 25.6 ns window; see
-`annieray/lappd_response.py`).
+`litepath/lappd_response.py`).
 
 **Note on backward compatibility:** schema v1 introduced this flat table.
 Files written by older code stored the same data as `event_N/lappd_readouts`
@@ -156,7 +156,7 @@ For `batch-lappd` this table contains the single standalone
 ## Reading
 
 ```python
-from annieray.io_h5 import BatchReader, load_table
+from litepath.io_h5 import BatchReader, load_table
 
 # Whole-file viewer
 br = BatchReader("results/output.h5")
@@ -182,12 +182,12 @@ for ev in br.iter_events():
 
 `load_table(path, "muon_truth")` returns an empty DataFrame for a missing
 table, so probing is optional.  `EventData` and `BatchReader` live in
-`annieray/io_h5.py`.
+`litepath/io_h5.py`.
 
 ## Typical usage
 
 ```python
-from annieray.io_h5 import BatchReader
+from litepath.io_h5 import BatchReader
 
 br = BatchReader("results/output.h5")
 muons = br.load_table("muon_truth")

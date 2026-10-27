@@ -1,14 +1,14 @@
-"""Benchmarking framework: WAGLE ROOT trees → annieray batch HDF5 schema.
+"""Benchmarking framework: WAGLE ROOT trees → litepath batch HDF5 schema.
 
 This module provides
 
 * a reader for the WAGLE ``Event`` trees shipped in ``benchmarking_data/``
   (``ANNIETree_ThroughgoingMuons.root`` = data,
   ``MCTree_ThroughgoingMuons.root`` = Monte Carlo with truth tracks),
-* the coordinate-frame transform between the WAGLE frame and the annieray
+* the coordinate-frame transform between the WAGLE frame and the litepath
   world frame,
 * a writer that re-exports the parsed events in the *same* HDF5 schema
-  that ``annieray batch`` produces, so data, MC and raytracer output can
+  that ``litepath batch`` produces, so data, MC and raytracer output can
   be analysed with a single code path.
 
 Frames
@@ -18,19 +18,19 @@ Frames
     (downstream).  Origin at the centre of the water tank.  Positions are
     in metres, times in ns, charges in PE (``hitQ`` in pC).
 
-``world`` (annieray)
+``world`` (litepath)
     The GDML *structure* frame: ``z`` vertical (up), ``x``/``y`` in the
     horizontal plane, the tank centred at ``z = WCLength / 2``.  This is
     the frame the ray tracer works in; the PMT positions are derived from
-    ``PMTPositions_Scan.txt`` (see :mod:`annieray.pmt_loader`).
+    ``PMTPositions_Scan.txt`` (see :mod:`litepath.pmt_loader`).
 
 The transform is::
 
     world = Rz(det_rotation) · ( Rz(-157.5°) · Rx(+90°) · root + (0, 0, 1980) )
 
-It is *not* fitted to the WAGLE data: the constants come from the annieray
+It is *not* fitted to the WAGLE data: the constants come from the litepath
 geometry chain (scan frame → WCSim hall frame → structure frame, see
-:mod:`annieray.pmt_loader`), and the WAGLE data is used to *check* it.
+:mod:`litepath.pmt_loader`), and the WAGLE data is used to *check* it.
 Two independent checks pass:
 
 * the hall ↔ ROOT relation is a pure *y/z swap* (``Rx(-90°)``) — a Procrustes
@@ -49,9 +49,9 @@ is looked up by Tube ID, so every hit of a given PMT carries the same
 point.  The ``pmt_hits`` table therefore holds PMT centres, not photocathode
 landing points.
 
-In the annieray world frame the WAGLE beam runs at ``phi = 135°`` (an
+In the litepath world frame the WAGLE beam runs at ``phi = 135°`` (an
 octagon corner of the inner structure); the ``--muon-mode beam`` helper in
-:mod:`annieray.cli` uses ``+Y`` (90°), which is 45° away from it.
+:mod:`litepath.cli` uses ``+Y`` (90°), which is 45° away from it.
 
 Units used in the ROOT trees (verified against the geometry)
 ------------------------------------------------------------
@@ -81,7 +81,7 @@ from typing import Iterable, Iterator, Optional
 
 import numpy as np
 
-from annieray.io_h5 import (
+from litepath.io_h5 import (
     DETECTOR_DTYPE,
     MUON_TRUTH_DTYPE,
     PMT_RESPONSE_DTYPE,
@@ -115,14 +115,14 @@ __all__ = [
 #: Rotation that undoes the WCSim placement of the inner structure.
 STRUCTURE_ROTATION_DEG = -157.5
 
-#: Global Z-rotation applied to the detector registry (annieray default).
+#: Global Z-rotation applied to the detector registry (litepath default).
 DET_ROTATION_DEG = 22.5
 
 #: Half the water-tank length: the structure frame origin sits this far
 #: below the tank centre (WCLength = 3960 mm).
 HALF_WC_LENGTH = 1980.0
 
-#: Water-tank geometry (mm) — identical to ``annieray.tracer.build_geometry``.
+#: Water-tank geometry (mm) — identical to ``litepath.tracer.build_geometry``.
 TANK_RADIUS_MM = 1524.0
 TANK_Z_MIN_MM = 19.0
 TANK_Z_MAX_MM = 3861.0
@@ -211,7 +211,7 @@ def _rot_x(points: np.ndarray, angle_deg: float) -> np.ndarray:
 
 def root_to_world(points: np.ndarray,
                   det_rotation_deg: float = DET_ROTATION_DEG) -> np.ndarray:
-    """Transform ROOT-frame positions (mm) into the annieray world frame (mm).
+    """Transform ROOT-frame positions (mm) into the litepath world frame (mm).
 
     Parameters
     ----------
@@ -223,7 +223,7 @@ def root_to_world(points: np.ndarray,
     Returns
     -------
     numpy.ndarray
-        (..., 3) positions in the annieray world frame, in millimetres.
+        (..., 3) positions in the litepath world frame, in millimetres.
     """
     p = np.asarray(points, dtype=np.float64)
     p = _rot_x(p, 90.0)
@@ -246,7 +246,7 @@ def world_to_root(points: np.ndarray,
 
 def root_to_world_direction(directions: np.ndarray,
                             det_rotation_deg: float = DET_ROTATION_DEG) -> np.ndarray:
-    """Transform ROOT-frame direction vectors into the annieray world frame."""
+    """Transform ROOT-frame direction vectors into the litepath world frame."""
     d = np.asarray(directions, dtype=np.float64)
     d = _rot_x(d, 90.0)
     d = _rot_z(d, STRUCTURE_ROTATION_DEG)
@@ -264,8 +264,8 @@ def world_to_root_direction(directions: np.ndarray,
     return d
 
 
-def annieray_angles(direction: np.ndarray) -> tuple[float, float]:
-    """Return ``(theta_deg, phi_deg)`` in the annieray convention.
+def litepath_angles(direction: np.ndarray) -> tuple[float, float]:
+    """Return ``(theta_deg, phi_deg)`` in the litepath convention.
 
     ``theta`` is the polar angle measured from *downward* (-z):
     0° = straight down, 90° = horizontal, 180° = straight up.
@@ -296,13 +296,13 @@ def root_angles(direction: np.ndarray) -> tuple[float, float]:
 
 
 # ---------------------------------------------------------------------------
-# Extension tables (beyond the standard annieray batch schema)
+# Extension tables (beyond the standard litepath batch schema)
 # ---------------------------------------------------------------------------
 
 #: Raw digitised PMT hits (one row per ROOT hit).
 PMT_HIT_DTYPE = np.dtype([
     ("event_id", "i8"),
-    ("pmt_index", "i4"),      # annieray detector index (0..131)
+    ("pmt_index", "i4"),      # litepath detector index (0..131)
     ("detector_id", "i4"),    # WCSim TubeID (332..463)
     ("arrival_time", "f4"),   # ns
     ("charge_pe", "f4"),      # photoelectrons
@@ -322,7 +322,7 @@ BENCH_TRUTH_DTYPE = np.dtype([
     ("dir_x", "f4"),
     ("dir_y", "f4"),
     ("dir_z", "f4"),
-    ("theta_deg", "f4"),        # annieray convention (0 = down)
+    ("theta_deg", "f4"),        # litepath convention (0 = down)
     ("phi_deg", "f4"),
     ("root_pos_x", "f4"),       # ROOT frame (mm)
     ("root_pos_y", "f4"),
@@ -361,11 +361,11 @@ TRUTH_KIND_MRD_RECO = 1    # MRD reconstruction (data tree, and MC as cross-chec
 
 @dataclass
 class PMTRegistry:
-    """PMT lookup shared by the ROOT trees and the annieray geometry.
+    """PMT lookup shared by the ROOT trees and the litepath geometry.
 
     ``tube_id`` are the WCSim TubeIDs (332-463) used by the ROOT
     ``hitDetID`` branch; ``index`` is the position of the PMT in the
-    annieray geometry arrays (i.e. the ``detector_index`` of the standard
+    litepath geometry arrays (i.e. the ``detector_index`` of the standard
     ``pmt_responses`` / ``photon_hits`` tables).
     """
 
@@ -385,7 +385,7 @@ class PMTRegistry:
         return len(self.tube_id)
 
     def index_of(self, tube_id: int) -> int:
-        """Return the annieray detector index for a WCSim TubeID."""
+        """Return the litepath detector index for a WCSim TubeID."""
         try:
             return self._by_tube[int(tube_id)]
         except KeyError as exc:  # pragma: no cover - defensive
@@ -418,10 +418,10 @@ def load_pmt_registry(scan_path: Path | str,
                       det_rotation_deg: float = DET_ROTATION_DEG) -> PMTRegistry:
     """Build the :class:`PMTRegistry` from the WCSim scan file.
 
-    The scan file order defines the annieray detector indices, so the
-    registry is consistent with ``annieray.pmt_loader.load_pmts``.
+    The scan file order defines the litepath detector indices, so the
+    registry is consistent with ``litepath.pmt_loader.load_pmts``.
     """
-    from annieray.pmt_loader import load_pmts
+    from litepath.pmt_loader import load_pmts
 
     pmt = load_pmts(Path(scan_path), det_rotation_deg=det_rotation_deg)
     n = len(pmt["detector_nums"])
@@ -461,17 +461,17 @@ class TruthTrack:
     mrd_length_cm: float = float("nan")
 
     def pos_world_mm(self, det_rotation_deg: float = DET_ROTATION_DEG) -> np.ndarray:
-        """Vertex in the annieray world frame (mm)."""
+        """Vertex in the litepath world frame (mm)."""
         return root_to_world(self.pos_root_mm, det_rotation_deg)
 
     def dir_world(self, det_rotation_deg: float = DET_ROTATION_DEG) -> np.ndarray:
-        """Unit direction in the annieray world frame."""
+        """Unit direction in the litepath world frame."""
         return root_to_world_direction(self.dir_root, det_rotation_deg)
 
     def world_angles(self, det_rotation_deg: float = DET_ROTATION_DEG
                      ) -> tuple[float, float]:
-        """``(theta_deg, phi_deg)`` in the annieray convention."""
-        return annieray_angles(self.dir_world(det_rotation_deg))
+        """``(theta_deg, phi_deg)`` in the litepath convention."""
+        return litepath_angles(self.dir_world(det_rotation_deg))
 
     def root_angles(self) -> tuple[float, float]:
         """``(theta_deg, phi_deg)`` in the WAGLE convention."""
@@ -812,7 +812,7 @@ class RootTreeReader:
 
 
 # ---------------------------------------------------------------------------
-# Conversion to the annieray batch schema
+# Conversion to the litepath batch schema
 # ---------------------------------------------------------------------------
 
 
@@ -869,7 +869,7 @@ def _truth_row(event: BenchmarkEvent, registry: PMTRegistry,
     det_rot = registry.det_rotation_deg
     pos_world = truth.pos_world_mm(det_rot)
     dir_world = truth.dir_world(det_rot)
-    theta, phi = annieray_angles(dir_world)
+    theta, phi = litepath_angles(dir_world)
     rtheta, rphi = root_angles(truth.dir_root)
 
     mu["event_id"] = event.event_id
@@ -918,10 +918,10 @@ def write_benchmark_h5(
     write_raw_hits: bool = True,
     chunk_events: int = 500,
 ) -> Path:
-    """Write parsed WAGLE events in the annieray batch HDF5 schema.
+    """Write parsed WAGLE events in the litepath batch HDF5 schema.
 
     The file contains the standard tables (``muon_truth``, ``pmt_responses``,
-    ``detectors``) with exactly the dtypes used by ``annieray batch``, plus
+    ``detectors``) with exactly the dtypes used by ``litepath batch``, plus
     two extension tables: ``pmt_hits`` (the raw digitised hits) and
     ``benchmark_truth`` (the track truth/reconstruction in both frames).
 
@@ -932,7 +932,7 @@ def write_benchmark_h5(
     events : iterable of BenchmarkEvent
         Events to write.
     registry : PMTRegistry
-        PMT lookup used to map WCSim TubeIDs to annieray detector indices.
+        PMT lookup used to map WCSim TubeIDs to litepath detector indices.
     kind : str
         ``"data"`` or ``"mc"`` — recorded in the root attributes.
     source_file : str
@@ -951,7 +951,7 @@ def write_benchmark_h5(
     """
     import h5py
 
-    from annieray.io_h5 import SCHEMA_VERSION
+    from litepath.io_h5 import FORMAT_NAME, SCHEMA_VERSION
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -964,7 +964,7 @@ def write_benchmark_h5(
 
     with h5py.File(path, "w") as f:
         f.attrs["schema_version"] = SCHEMA_VERSION
-        f.attrs["format"] = "annieray-batch"
+        f.attrs["format"] = FORMAT_NAME
         f.attrs["detector_mode"] = f"benchmark-{kind}"
         f.attrs["created"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         f.attrs["source_file"] = source_file
@@ -973,9 +973,9 @@ def write_benchmark_h5(
             "kind": kind,
             "source_file": source_file,
             "det_rotation_deg": det_rotation_deg,
-            "frame": "world (annieray structure frame, mm)",
+            "frame": "world (litepath structure frame, mm)",
         })
-        # Tank geometry — matches annieray.tracer.build_geometry so that the
+        # Tank geometry — matches litepath.tracer.build_geometry so that the
         # standard event display / analysis scripts can use these files.
         f.attrs["tank_radius_mm"] = TANK_RADIUS_MM
         f.attrs["tank_z_min_mm"] = TANK_Z_MIN_MM

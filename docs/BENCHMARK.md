@@ -1,7 +1,7 @@
-# WAGLE Benchmark Data → annieray HDF5
+# WAGLE Benchmark Data → litepath HDF5
 
-`annieray benchmark` converts the two WAGLE ROOT files in `benchmarking_data/`
-into the annieray batch HDF5 schema, so that data, Monte Carlo and raytracer
+`litepath benchmark` converts the two WAGLE ROOT files in `benchmarking_data/`
+into the litepath batch HDF5 schema, so that data, Monte Carlo and raytracer
 output can be analysed with the same tools.
 
 | File | Events | Truth |
@@ -13,13 +13,13 @@ output can be analysed with the same tools.
 
 ```bash
 # Convert both files (≈20 s total)
-python -m annieray benchmark \
+python -m litepath benchmark \
     --data benchmarking_data/ANNIETree_ThroughgoingMuons.root \
     --mc   benchmarking_data/MCTree_ThroughgoingMuons.root \
     --output-dir results/benchmark
 
 # One file, first 100 events only
-python -m annieray benchmark --mc benchmarking_data/MCTree_ThroughgoingMuons.root \
+python -m litepath benchmark --mc benchmarking_data/MCTree_ThroughgoingMuons.root \
     --output-dir results/benchmark --max-events 100
 ```
 
@@ -50,11 +50,11 @@ the 121 hit PMT point clouds: the fitted rotation *is* that swap, and a free
 rotation gives the same residual (12.7 mm) as the constrained swap
 (12.5 mm), so nothing is hidden in the chain.
 
-annieray world frame: **z** vertical, tank axis along z, tank spans
+litepath world frame: **z** vertical, tank axis along z, tank spans
 z = 19…3861 mm, radius 1524 mm.
 
-The transform comes from the annieray geometry chain (scan frame → hall
-frame → structure frame, see `annieray/pmt_loader.py`) and is **not fitted to
+The transform comes from the litepath geometry chain (scan frame → hall
+frame → structure frame, see `litepath/pmt_loader.py`) and is **not fitted to
 the WAGLE data**:
 
 ```
@@ -62,7 +62,7 @@ world = Rz(det_rotation) · ( Rz(-157.5°) · Rx(+90°) · root + (0, 0, 1980) )
 ```
 
 with `det_rotation = 22.5°` by default — the same value the raytracer uses
-(`annieray pmt_loader.load_pmts`). `annieray.benchmark` exposes
+(`litepath pmt_loader.load_pmts`). `litepath.benchmark` exposes
 `root_to_world`, `world_to_root` and the direction-only variants.
 
 Note: the WCSim tank centre maps to z = 1980 mm while the water tank
@@ -83,11 +83,11 @@ conventions.
 
 ### The beam is at φ = 135°, not at +Y
 
-In the annieray world frame the WAGLE beam runs at **φ = 135°**, which is a
+In the litepath world frame the WAGLE beam runs at **φ = 135°**, which is a
 corner of the inner-structure octagon (the panels are centred on
 22.5° + k·45°, so the corners are at 45° + k·45°).
 
-`annieray batch --muon-mode beam` points the muon along **+Y** (φ = 90°),
+`litepath batch --muon-mode beam` points the muon along **+Y** (φ = 90°),
 which is the *neighbouring* octagon corner — 45° away from the WAGLE beam.
 That is a labelling convention of the CLI, not a frame error: the GDML, the
 PMT registry and the WAGLE data all agree with each other.  When comparing
@@ -103,7 +103,7 @@ python scripts/event_display.py results/benchmark/mc.h5 --charge
 
 | | theta | phi |
 |---|---|---|
-| annieray | `acos(-dz)` — 0° = straight down | `atan2(dy, dx)` |
+| litepath | `acos(-dz)` — 0° = straight down | `atan2(dy, dx)` |
 | WAGLE | `acos(dirZ)` — from the beam axis (+z) | `atan2(dy, dx)` |
 
 Both are written out (`theta_deg`/`phi_deg` and `root_theta_deg`/`root_phi_deg`)
@@ -116,7 +116,7 @@ joins them:
 
 | Piece | Source |
 |---|---|
-| PMT positions, directions, radii | the **ID**: `hitDetID` (WCSim TubeID 332–463) → `PMTPositions_Scan.txt` → the annieray registry |
+| PMT positions, directions, radii | the **ID**: `hitDetID` (WCSim TubeID 332–463) → `PMTPositions_Scan.txt` → the litepath registry |
 | Track geometry (MC) | the truth branches `trueVtx*` / `trueDir*` — independent of any PMT data |
 | Track geometry (data) | the MRD reconstruction (no generator truth available) |
 | WAGLE `hitX/Y/Z` | the PMT centre as WCSim stores it — used only as a cross-check |
@@ -136,8 +136,8 @@ files to compare against the raytracer's `photon_hits`.
 
 ## Output schema
 
-The standard tables use exactly the dtypes of `annieray batch`, so the files
-can be fed to `BatchReader`, `annieray fit` and the analysis scripts:
+The standard tables use exactly the dtypes of `litepath batch`, so the files
+can be fed to `BatchReader`, `litepath fit` and the analysis scripts:
 
 | Table | Contents |
 |-------|----------|
@@ -205,7 +205,7 @@ that looks back at the beam.  A dashed vertical line marks the beam axis and
 the centred corner is labelled.  `--center-phi` overrides the automatic choice
 and is given in the *physical* convention (the title shows that value).
 
-**Inside-view handedness.**  The WCSim scan → annieray world map is
+**Inside-view handedness.**  The WCSim scan → litepath world map is
 left-handed in the `(pmt_x, pmt_z)` plane (`pmt_loader._scan_to_tank` uses the
 WCSim-faithful `Y_w = (168.1 − pmt_z)·10`), so the world azimuth `atan2(y, x)`
 winds opposite to the way the detector looks when viewed from *inside* the
@@ -217,7 +217,7 @@ visualiser (`viz_server`) are untouched, and the mirror is pinned by
 `tests/test_event_display.py`.
 
 To cross-check the orientation against the hardware, `--mark-pmt ID [ID ...]`
-rings and labels specific PMTs on the barrel.  Each ID may be an annieray
+rings and labels specific PMTs on the barrel.  Each ID may be an litepath
 detector index or a WAGLE Tube ID (e.g. `428` or `PMT_428`):
 
 ```bash
@@ -257,12 +257,12 @@ The same invariants are covered by `tests/test_benchmark.py`.
 
 ## Raytracing the same track
 
-To run the annieray raytracer on a WAGLE MC event, export its track as a
-muon topology file and feed it to `annieray batch`:
+To run the litepath raytracer on a WAGLE MC event, export its track as a
+muon topology file and feed it to `litepath batch`:
 
 ```bash
 python scripts/mc_muon_file.py results/benchmark/mc.h5 --event 0 --out /tmp/ev0.txt
-python -m annieray batch --muon-file /tmp/ev0.txt --events 1 \
+python -m litepath batch --muon-file /tmp/ev0.txt --events 1 \
     --pmt-csv PMTPositions_Scan.txt --surfboard 3 --pmt-response \
     --max-bounces 3 \
     --output-dir results/raytrace_ev0
@@ -276,7 +276,7 @@ python -m annieray batch --muon-file /tmp/ev0.txt --events 1 \
 > the photons that miss a PMT are lost instead of bouncing off the tank.
 > `batch` had a bug that mis-attributed the detected hits to the wrong
 > events when reflections were on (it sliced the hit array with the
-> *generated photon* counts); this was fixed in `annieray/batch.py` and
+> *generated photon* counts); this was fixed in `litepath/batch.py` and
 > covered by `tests/test_batch_event_split.py`.
 
 Show both side by side:
@@ -293,7 +293,7 @@ event; both share one colour scale.
 
 Over 20 WAGLE MC events (same tracks, `--max-bounces 3`, 150 photons/cm):
 
-| | WAGLE MC | annieray |
+| | WAGLE MC | litepath |
 |---|---|---|
 | PMTs with a hit, per event | 120 (114–121) | 131 (128–132) |
 | PMTs hit in both | 119 per event (99.5 % of the WAGLE set) | |
@@ -306,7 +306,7 @@ azimuth of the hit pattern agrees (median 192° vs 180°, both on the far side
 of the tank from the φ = 135° beam).  The extra raytracer PMTs are the ones
 closest to the digitisation threshold, which WCSim's stronger water
 absorption keeps empty.  This is the end-to-end confirmation that the
-ROOT → annieray transform is right.
+ROOT → litepath transform is right.
 
 ## Notes and known differences
 
@@ -345,5 +345,5 @@ ROOT → annieray transform is right.
   centres (see above).  The `pmt_hits` table therefore cannot be compared
   row-by-row against the raytracer's `photon_hits`.
 * **Nothing in the raytracer was changed.** The conversion is a read-only
-  consumer of the annieray geometry (`annieray.pmt_loader`); `annieray
+  consumer of the litepath geometry (`litepath.pmt_loader`); `litepath
   benchmark` is a new subcommand and `scripts/` gained two new tools.

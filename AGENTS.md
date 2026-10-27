@@ -1,4 +1,4 @@
-# ANNIEraytracing
+# LitePath
 
 GPU-accelerated ray tracer for the ANNIE Phase II water Cherenkov detector at Fermilab. Replaces Geant4's stepwise photon integration with analytic ray-geometry intersections on the GPU using Taichi.
 
@@ -16,8 +16,8 @@ Key physics:
 ## Project Structure
 
 ```
-annieray/
-├── annieray/          # Main package (28 Python files)
+litepath/
+├── litepath/          # Main package (28 Python files)
 │   ├── cli.py         # CLI entry point (batch, fit, viz-server, etc.)
 │   ├── tracer.py      # Core: Geometry dataclass, Taichi GPU trace_kernel
 │   ├── batch.py       # Batch-mode event loop, HDF5 output
@@ -33,7 +33,7 @@ annieray/
 │   ├── pmt_response.py  # PMT digital model (fast + full waveform)
 │   ├── lappd_response.py # LAPPD digitization (Taichi-accelerated)
 │   ├── lappd_model.py  # LAPPD housing geometry builder
-│   ├── benchmark.py    # WAGLE ROOT (data/MC) → annieray HDF5 conversion
+│   ├── benchmark.py    # WAGLE ROOT (data/MC) → litepath HDF5 conversion
 │   ├── viz_server.py  # Interactive Three.js 3D viewer
 │   └── io_h5.py       # HDF5 table I/O
 ├── scripts/           # Analysis/plotting utilities (13 files)
@@ -58,54 +58,54 @@ pip install -e .
 pytest
 
 # Batch simulation
-python -m annieray batch \
+python -m litepath batch \
     --pmt-csv PMTPositions_Scan.txt \
     --surfboard 3 \
     --events 100 --photons-per-cm 150
 
 # Batch simulation without inner structure (PMTs + LAPPDs only)
-python -m annieray batch --no-gdml \
+python -m litepath batch --no-gdml \
     --pmt-csv PMTPositions_Scan.txt \
     --surfboard 3 \
     --events 100
 
 # Batch simulation without PMT holder meshes (faster, PMT positions still loaded)
-python -m annieray batch --no-pmt-holders \
+python -m litepath batch --no-pmt-holders \
     --pmt-csv PMTPositions_Scan.txt \
     --surfboard 3 \
     --events 100
 
 # Batch simulation with Cherenkov + wbLS scintillation
-python -m annieray batch \
+python -m litepath batch \
     --pmt-csv PMTPositions_Scan.txt \
     --surfboard 3 \
     --events 100 --photons-per-cm 150 \
     --scintillation --photons-per-cm-scint 100
 
 # Scintillation-only batch (Cherenkov off)
-python -m annieray batch \
+python -m litepath batch \
     --pmt-csv PMTPositions_Scan.txt \
     --events 100 --photons-per-cm 0 \
     --scintillation --photons-per-cm-scint 100
 
 # Batch mode on a standalone LAPPD module (same output format as 'batch')
-python -m annieray batch-lappd \
+python -m litepath batch-lappd \
     --source cherenkov --sample-mode grid \
     --grid-steps 9 5 --photons-per-cm 150 --lappd-response
 
 # Standalone LAPPD batch with a spot beam onto the photocathode
-python -m annieray batch-lappd \
+python -m litepath batch-lappd \
     --source spot --n-photons 5000 --spread-deg 2 \
     --intercept 0 -45 3.5 --lappd-response
 
 # Direction fit
-python -m annieray fit output.h5 --event 0 --show
+python -m litepath fit output.h5 --event 0 --show
 
 # 3D viewer (scintillation toggle + parameters in the Trace panel)
-python -m annieray viz-server --pmt-csv PMTPositions_Scan.txt --surfboard 3 --port 8080
+python -m litepath viz-server --pmt-csv PMTPositions_Scan.txt --surfboard 3 --port 8080
 
-# Convert WAGLE ROOT (ANNIE data / MC) into the annieray HDF5 schema
-python -m annieray benchmark \
+# Convert WAGLE ROOT (ANNIE data / MC) into the litepath HDF5 schema
+python -m litepath benchmark \
     --data benchmarking_data/ANNIETree_ThroughgoingMuons.root \
     --mc   benchmarking_data/MCTree_ThroughgoingMuons.root \
     --output-dir results/benchmark
@@ -159,7 +159,7 @@ Both `batch` and `batch-lappd` write the same HDF5 schema (v1):
 `photon_hits`, `muon_truth`, `lappd_readouts` (flat, per event+LAPPD),
 `pmt_responses` (`batch` only), `detectors`, plus `format`/`schema_version`/
 `detector_mode`/`config` root attrs.  See `docs/BATCH_OUTPUT.md` and use
-`BatchReader` in `annieray/io_h5.py` to load files.
+`BatchReader` in `litepath/io_h5.py` to load files.
 
 ## Key Data Files
 
@@ -181,7 +181,7 @@ Both `batch` and `batch-lappd` write the same HDF5 schema (v1):
 - **HDF5** (h5py) for batch output
 - **GDML** (lxml) for detector geometry parsing
 - **CadQuery** for STEP CAD file parsing
-- CLI via `python -m annieray <command>`
+- CLI via `python -m litepath <command>`
 - No heavy frameworks — keep dependencies minimal
 
 ## Muon Direction Conventions
@@ -194,17 +194,17 @@ Both `batch` and `batch-lappd` write the same HDF5 schema (v1):
 - **ROOT (WAGLE) frame**: x horizontal transverse, **y vertical (up)**, **z along the beam**
   (downstream), origin at the tank centre.  The WCSim *hall* frame instead has y
   along the beam and z vertical, so the two differ by a pure y/z swap.
-- **World frame** = annieray structure frame: z vertical, tank axis along z.
+- **World frame** = litepath structure frame: z vertical, tank axis along z.
   `world = Rz(det_rotation)·(Rz(-157.5°)·Rx(+90°)·root + (0,0,1980))` — see
-  `annieray/benchmark.py` and `docs/BENCHMARK.md`.
+  `litepath/benchmark.py` and `docs/BENCHMARK.md`.
 - The **WAGLE beam runs at φ = 135°** in the world frame (an octagon corner).
-  `annieray batch --muon-mode beam` points along **+Y (90°)**, which is 45°
+  `litepath batch --muon-mode beam` points along **+Y (90°)**, which is 45°
   away — a CLI labelling convention, not a frame error.
 - WAGLE `hitX/Y/Z` is the **PMT centre** (looked up by Tube ID), not a
   per-photon position; WCSim places it 10.4 mm (8") / 23.7 mm (ETEL 10%)
   further outward than the survey position.
 - The raytracer machinery is **not** modified by the benchmarking work; the
-  conversion is a read-only consumer of the annieray geometry.
+  conversion is a read-only consumer of the litepath geometry.
 
 ## Current State
 

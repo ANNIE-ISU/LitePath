@@ -1,6 +1,6 @@
 """Structural schema tests for the standardized HDF5 batch output.
 
-Both ``annieray batch`` and ``annieray batch-lappd`` must produce the same
+Both ``litepath batch`` and ``litepath batch-lappd`` must produce the same
 flat schema (see ``docs/BATCH_OUTPUT.md``): root attributes plus the
 ``photon_hits`` / ``muon_truth`` / ``lappd_readouts`` / ``detectors`` tables.
 
@@ -14,15 +14,15 @@ import pytest
 
 import taichi as ti
 
-from annieray.io_h5 import (
+from litepath.io_h5 import (
     BatchReader,
     SCHEMA_VERSION,
     SOURCE_SPOT,
     SOURCE_TRACK,
     load_table,
 )
-from annieray.lappd_batch import LAPPDBatchConfig, run_lappd_batch
-from annieray.tracer import build_single_lappd_geometry
+from litepath.lappd_batch import LAPPDBatchConfig, run_lappd_batch
+from litepath.tracer import build_single_lappd_geometry
 
 # Same init as the CLI entry points.
 ti.init(arch=ti.cpu, default_fp=ti.f32)
@@ -58,7 +58,7 @@ def test_cherenkov_mode_schema(tmp_path):
     reader = BatchReader(h5)
     summary = reader.summary()
     assert summary["schema_version"] == SCHEMA_VERSION
-    assert summary["format"] == "annieray-batch"
+    assert summary["format"] == "litepath-batch"
     assert summary["detector_mode"] == "lappd-standalone"
     assert set(summary["tables"]) >= {
         "photon_hits", "muon_truth", "lappd_readouts", "detectors",
@@ -151,8 +151,8 @@ def test_full_detector_uses_same_schema(tmp_path):
     """Full-detector output uses identical table layouts to batch-lappd."""
     import h5py
     from pathlib import Path
-    from annieray.batch import BatchConfig, run_batch
-    from annieray.tracer import build_geometry
+    from litepath.batch import BatchConfig, run_batch
+    from litepath.tracer import build_geometry
 
     geometry = build_geometry(
         Path("PHASE2_INNER_STRUCTURE_closed.gdml"),
@@ -175,7 +175,7 @@ def test_full_detector_uses_same_schema(tmp_path):
     # Dimensions match between the two modes for shared tables.
     with h5py.File(h5_full, "r") as f:
         assert f.attrs["schema_version"] == SCHEMA_VERSION
-        assert f.attrs["format"] == "annieray-batch"
+        assert f.attrs["format"] == "litepath-batch"
         assert f.attrs["detector_mode"] == "full"
         full_dtype = f["muon_truth"].dtype
 

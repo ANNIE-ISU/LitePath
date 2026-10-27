@@ -3,7 +3,7 @@
 This is the batch counterpart of the interactive ``viz-lappd`` viewer:
 it builds the single-ANNIE-housing geometry, shoots light sources at it,
 optionally runs the LAPPD digitizer, and writes the *same* standardized
-HDF5 schema as the full-detector ``annieray batch`` command
+HDF5 schema as the full-detector ``litepath batch`` command
 (see ``docs/BATCH_OUTPUT.md``).
 
 Both interactive source definitions are supported:
@@ -15,10 +15,10 @@ Both interactive source definitions are supported:
 
 Usage::
 
-    python -m annieray batch-lappd --source cherenkov --sample-mode grid \\
+    python -m litepath batch-lappd --source cherenkov --sample-mode grid \\
         --lappd-response --output-dir results_lappd
 
-    python -m annieray batch-lappd --source spot --n-photons 5000 \\
+    python -m litepath batch-lappd --source spot --n-photons 5000 \\
         --spread-deg 2 --intercept 0 -45 3.5 --lappd-response
 """
 
@@ -31,11 +31,11 @@ from typing import Optional
 
 import numpy as np
 
-from annieray.batch import BatchAccumulator, H5_OUTPUT_NAME, _load_muon_file, \
+from litepath.batch import BatchAccumulator, H5_OUTPUT_NAME, _load_muon_file, \
     _MUON_FILE_CACHE
-from annieray.cherenkov import generate_cherenkov_photons, generate_spot_photons
-from annieray.io_h5 import SOURCE_TRACK, SOURCE_SPOT
-from annieray.tracer import (
+from litepath.cherenkov import generate_cherenkov_photons, generate_spot_photons
+from litepath.io_h5 import SOURCE_TRACK, SOURCE_SPOT
+from litepath.tracer import (
     Geometry, build_single_lappd_geometry,
     trace_rays, compute_track_length,
     N_HIT_COLS, N_EXPANDED_COLS,
@@ -114,7 +114,7 @@ def _normalize(v: tuple[float, float, float]) -> tuple[float, float, float]:
 def _scatter_aim(aim: tuple[float, float, float], spread_deg: float,
                  rng: np.random.Generator) -> tuple[float, float, float]:
     """Perturb *aim* (unit) by a Rayleigh scatter of *spread_deg* degrees."""
-    from annieray.cherenkov import generate_spot_photons
+    from litepath.cherenkov import generate_spot_photons
     _, dirs, _ = generate_spot_photons(
         (0.0, 0.0, 0.0, 0.0), aim, 1, spread_deg=spread_deg, rng=rng
     )
@@ -268,7 +268,7 @@ def run_lappd_batch(
 
         lappd_responses = None
         if config.lappd_response:
-            from annieray.lappd_response import process_hits
+            from litepath.lappd_response import process_hits
             lappd_responses = process_hits(
                 full, rng_seed=rng.integers(0, 2**31),
             )
@@ -321,7 +321,7 @@ def run_lappd_batch(
                 print(f"  LAPPD readouts: {accumulator._n_lappd_rows} rows "
                       f"across {accumulator._n_lappd_events} events")
             if h5_path.exists() and len(geometry.detectors):
-                from annieray.io_h5 import write_detectors, write_metadata
+                from litepath.io_h5 import write_detectors, write_metadata
                 write_metadata(h5_path, {"detector_mode": "lappd-standalone"})
                 write_detectors(h5_path, geometry.detectors)
                 paths["detectors"] = h5_path

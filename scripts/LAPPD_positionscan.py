@@ -1,6 +1,6 @@
 """LAPPD position-scan heatmap from batch output.
 
-Reads ``output.h5`` produced by ``annieray batch`` and plots heatmaps
+Reads ``output.h5`` produced by ``litepath batch`` and plots heatmaps
 of hit counts for each ANNIE LAPPD as a function of muon (X, Z) position.
 
 Usage:
@@ -16,7 +16,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib import colors
 
-from annieray.io_h5 import load_table
+from litepath.io_h5 import load_table
 
 
 def main() -> None:

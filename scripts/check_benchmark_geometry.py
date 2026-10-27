@@ -1,6 +1,6 @@
 """Geometry checks for a converted WAGLE benchmark file.
 
-Verifies that the ROOT -> annieray world-frame transform is right, using only
+Verifies that the ROOT -> litepath world-frame transform is right, using only
 the converted HDF5 file and the raytracer's own detector registry (i.e. the
 two geometries are compared to each other, independently of the code that
 produced the file).
@@ -18,7 +18,7 @@ Checks performed
    the PMTs above the tank centre in the ROOT frame must end up at the top
    in the world frame, and the muon must still travel downstream.
 4. **Beam azimuth.**  The MC muon directions must cluster at a single azimuth
-   (135 deg in the annieray world frame).
+   (135 deg in the litepath world frame).
 5. **Track geometry.**  The MC vertex must lie inside the tank; the data
    vertex (an MRD reconstruction) must lie on the tank boundary, or be NaN
    when the MRD line misses the tank.
@@ -41,10 +41,10 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from annieray.benchmark import load_pmt_registry  # noqa: E402
-from annieray.io_h5 import BatchReader  # noqa: E402
+from litepath.benchmark import load_pmt_registry  # noqa: E402
+from litepath.io_h5 import BatchReader  # noqa: E402
 
-#: Expected beam azimuth in the annieray world frame (deg).
+#: Expected beam azimuth in the litepath world frame (deg).
 BEAM_PHI_DEG = 135.0
 #: Tolerance on the azimuth of the reconstructed beam.
 BEAM_PHI_TOL_DEG = 15.0
@@ -67,7 +67,7 @@ DATA_MAG_TOL_MM = 0.6
 DATA_MEAN_TOL_MM = 1.0
 #: Azimuthal agreement between the WAGLE PMT point and the raytracer centre.
 AZIMUTH_TOL_DEG = 0.5
-#: Water tank (mm) — see annieray.tracer.build_geometry.
+#: Water tank (mm) — see litepath.tracer.build_geometry.
 TANK_R = 1524.0
 TANK_Z_MIN, TANK_Z_MAX = 19.0, 3861.0
 

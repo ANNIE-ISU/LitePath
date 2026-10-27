@@ -756,7 +756,7 @@ def process_hit_dicts(
         hit_time[i] = h.get("arrival_time", defaults["arrival_time"])
         wavelength[i] = h.get("wavelength", defaults["wavelength"])
 
-    from annieray.tracer import N_EXPANDED_COLS, HDI, HDS, HLU, HLV, H_ARRIVAL, H_WAVELEN
+    from litepath.tracer import N_EXPANDED_COLS, HDI, HDS, HLU, HLV, H_ARRIVAL, H_WAVELEN
 
     # Build a synthetic tracer-style hit array.
     # Store PC-centred local coordinates (same convention as the tracer's

@@ -4,7 +4,7 @@ Serves a Three.js page showing the ANNIE LAPPD housing, photocathode,
 and interactive Cherenkov ray tracing with configurable muon position.
 
 Usage:
-    python -m annieray viz-lappd
+    python -m litepath viz-lappd
 """
 
 from __future__ import annotations
@@ -16,15 +16,15 @@ from urllib.parse import urlparse, parse_qs
 
 import numpy as np
 
-from annieray.tracer import (
+from litepath.tracer import (
     build_single_lappd_geometry, trace_rays,
     compute_track_length,
     CID_LAPPD, CID_PMT, CID_INNER_STRUCTURE,
     HI, HCID, HT, HX, HY, HZ, HNX, HNY, HNZ,
 )
-from annieray.lappd_model import build_housing, housing_to_arrays
-from annieray.cherenkov import generate_cherenkov_photons
-from annieray.lappd_response import process_hit_dicts, LAPPDResponseConfig
+from litepath.lappd_model import build_housing, housing_to_arrays
+from litepath.cherenkov import generate_cherenkov_photons
+from litepath.lappd_response import process_hit_dicts, LAPPDResponseConfig
 
 housing_json: dict = {}
 _last_trace: dict = {}
@@ -123,7 +123,7 @@ def _trace_spot_on_lappd(
     rng: np.random.Generator,
 ) -> dict:
     """Generate a directed beam of N photons and trace via the GPU kernel."""
-    from annieray.cherenkov import generate_spot_photons
+    from litepath.cherenkov import generate_spot_photons
 
     origins, directions, create_times = generate_spot_photons(
         (pos[0], pos[1], pos[2], 0.0), dir, n_photons,

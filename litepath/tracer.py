@@ -10,11 +10,11 @@ from typing import Optional
 import numpy as np
 import taichi as ti
 
-from annieray import gdml_parser, step_parser
-from annieray import pmt_loader
-from annieray import pmt_mesh
-from annieray.optics import OpticalMaterial, WaterAttenuation
-from annieray.step_parser import LAPPD_HALF_SIZE
+from litepath import gdml_parser, step_parser
+from litepath import pmt_loader
+from litepath import pmt_mesh
+from litepath.optics import OpticalMaterial, WaterAttenuation
+from litepath.step_parser import LAPPD_HALF_SIZE
 
 
 # ---- Component IDs (written to hits[:, 8] = HCID) ----
@@ -318,7 +318,7 @@ def build_surfboard_housings(surfboard_data: np.ndarray) -> tuple[np.ndarray, np
     housing_data : np.ndarray  ``(S, 16)`` float32 — lappd_housing_data layout.
     annie_data   : np.ndarray  ``(S, 7)`` float32  — annie_lappd_data layout.
     """
-    from annieray.lappd_model import HOUSING_HALF, PC_LOCAL, PC_HALF
+    from litepath.lappd_model import HOUSING_HALF, PC_LOCAL, PC_HALF
 
     n = surfboard_data.shape[0]
     if n == 0:
@@ -425,7 +425,7 @@ def build_geometry(
             pmt_loader.rotate_z(verts, det_rotation_deg)
 
     # ---- Stage 1b: build BVH for structure mesh ----
-    from annieray.bvh import build_bvh
+    from litepath.bvh import build_bvh
     bvh = build_bvh(verts, tris)
 
     # ---- Stage 2: load PMT positions ----
@@ -477,7 +477,7 @@ def build_geometry(
         if lappd_sources is None:
             lappd_sources = [tuple(c) for c in manifest.lappd_centers] if manifest.lappd_centers else None
         if lappd_sources is None and manifest.lappd_candidates:
-            from annieray.step_parser import DEFAULT_LAPPD_INDICES
+            from litepath.step_parser import DEFAULT_LAPPD_INDICES
             lappd_sources = [tuple(manifest.lappd_candidates[i].center) for i in DEFAULT_LAPPD_INDICES
                             if i < len(manifest.lappd_candidates)]
 
@@ -499,7 +499,7 @@ def build_geometry(
             # the cylindrical column at the octagon corner (r≈1304 at 22.5°).
             # The housing is 60 mm thick; centre is 30 mm inward from column.
             z_replaced = min(lappd_sources, key=lambda s: abs(s[2] - tank_cz))[2]
-            from annieray.lappd_model import CORRECTION
+            from litepath.lappd_model import CORRECTION
             column_r = 1304.0
             half_thick = 30.0
             center_r = column_r - half_thick          # 1274 mm
@@ -539,7 +539,7 @@ def build_geometry(
     lappd_housing_data = np.empty((0, 16), dtype=np.float32)
     annie_lappd_data = np.empty((0, 7), dtype=np.float32)
     if lappd_model == "annie" and housing_source is not None:
-        from annieray.lappd_model import build_housing, housing_to_arrays
+        from litepath.lappd_model import build_housing, housing_to_arrays
 
         cx, cy, cz = housing_source
         r = max(np.hypot(cx, cy), 1.0)
@@ -570,7 +570,7 @@ def build_geometry(
     # Creates a list of DetectorInfo objects with stable IDs (WCSim TubeIDs
     # 332–463 for PMTs, 1000+ for LAPPDs, 2000+ for ANNIE LAPPD) so that
     # hit records can be mapped back to hardware regardless of array indexing.
-    from annieray.detectors import build_detector_registry
+    from litepath.detectors import build_detector_registry
 
     pmt_types_list: list[str] = []
     pmt_det_nums: list[int] = []
@@ -1877,7 +1877,7 @@ def trace_with_optics(
         lookups into per-photon data like creation time).  If no hits
         are detected, returns two empty arrays and an empty index array.
     """
-    from annieray.optics import evaluate_hit, rayleigh_scatter_dir
+    from litepath.optics import evaluate_hit, rayleigh_scatter_dir
 
     if rng is None:
         rng = np.random.default_rng()
@@ -1986,8 +1986,8 @@ def build_single_lappd_geometry(
     Useful for single-LAPPD visualisation, batch mode, or any context
     where only one housing is needed without the full detector geometry.
     """
-    from annieray.detectors import build_detector_registry
-    from annieray.lappd_model import build_housing, housing_to_arrays
+    from litepath.detectors import build_detector_registry
+    from litepath.lappd_model import build_housing, housing_to_arrays
 
     housing = build_housing(cad_centre, cad_normal, z_axis)
     hd, ad = housing_to_arrays(housing)
@@ -2021,7 +2021,7 @@ def build_single_lappd_geometry(
 
 def _housing_from_array(arr: np.ndarray):
     """Convert a (16,) housing array back into a LAPPDHousing dataclass."""
-    from annieray.lappd_model import LAPPDHousing
+    from litepath.lappd_model import LAPPDHousing
     cx, cy, cz = arr[0], arr[1], arr[2]
     ax = (arr[3], arr[4], arr[5])
     ay = (arr[6], arr[7], arr[8])
@@ -2105,7 +2105,7 @@ def compute_track_length(
     pos3 = muon_pos[:3] if len(muon_pos) > 3 else muon_pos
     dir3 = muon_dir[:3] if len(muon_dir) > 3 else muon_dir
 
-    from annieray.lappd_model import compute_housing_track_length
+    from litepath.lappd_model import compute_housing_track_length
 
     best = 1e30
 
@@ -2224,10 +2224,10 @@ def trace_muon_light(
         14: arrival_time (ns), 15: wavelength (nm), 16: bounce_count,
         17: photon_source (0=Cherenkov, 1=scintillation)
     """
-    from annieray.cherenkov import generate_cherenkov_photons
-    from annieray.lappd_model import compute_housing_track_length
-    from annieray.optics import load_optics_config
-    from annieray.scintillation import generate_scintillation_photons
+    from litepath.cherenkov import generate_cherenkov_photons
+    from litepath.lappd_model import compute_housing_track_length
+    from litepath.optics import load_optics_config
+    from litepath.scintillation import generate_scintillation_photons
 
     if rng is None:
         rng = np.random.default_rng()

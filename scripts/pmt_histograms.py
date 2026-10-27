@@ -1,6 +1,6 @@
 """Per-PMT histograms of charge or arrival time from batch output.
 
-Reads ``output.h5`` produced by ``annieray batch``.  PMTs are split into
+Reads ``output.h5`` produced by ``litepath batch``.  PMTs are split into
 four panel groups, each opening its own figure window:
 
   - Top endcap (panel 9)
@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from annieray.io_h5 import load_table
+from litepath.io_h5 import load_table
 
 
 def classify_pmts(det_df):

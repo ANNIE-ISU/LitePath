@@ -5,10 +5,10 @@ session before touching any code.
 
 ## Project Identity
 
-- **Current name on disk:** `ANNIEraytracing` (package: `annieray`)
+- **Current name on disk:** `ANNIEraytracing` (package: `litepath`)
 - **Target name:** `LitePath` (package: `litepath`)
 - **Repo:** `wetstein/ANNIEraytracing` → target org: `ANNIE-ISU/LitePath`
-- **Rename status:** NOT STARTED — do not rename files unless explicitly asked
+- **Rename status:** package + CLI renamed to `litepath` (branch `rename-litepath`, 2026-10-26). Clean break — no `annieray` shim. HDF5 `format` attr is now `litepath-batch`; older files say `annieray-batch` (reader does not check it). Directory, GitHub repo and clone URLs still say `ANNIEraytracing` until the org transfer.
 
 ## What This Is
 
@@ -51,8 +51,8 @@ changed before starting.
 pip install -e .
 pytest                            # fast tests (no GPU)
 pytest -m slow                    # full suite (needs GPU)
-annieray batch --help             # main simulation CLI
-annieray fit results/output.h5    # direction fitter
+litepath batch --help             # main simulation CLI
+litepath fit results/output.h5    # direction fitter
 ```
 
 ## Development History

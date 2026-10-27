@@ -4,7 +4,7 @@ Phase 1: material ID enum, property table, and geometric classification
 of PMT body/hardware meshes.
 
 Usage:
-    from annieray.materials import MaterialID, MATERIAL_TABLE, classify_pmt_body
+    from litepath.materials import MaterialID, MATERIAL_TABLE, classify_pmt_body
 """
 
 from __future__ import annotations

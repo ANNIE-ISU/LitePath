@@ -125,7 +125,7 @@ DTYPES = {
 
 # Schema version stamped into every output.h5 root group.
 SCHEMA_VERSION = 1
-FORMAT_NAME = "annieray-batch"
+FORMAT_NAME = "litepath-batch"
 
 
 # ---------------------------------------------------------------------------
@@ -272,8 +272,8 @@ class EventData:
 class BatchReader:
     """Read the standardized ``output.h5`` batch schema.
 
-    Both the full-detector ``annieray batch`` and the standalone-LAPPD
-    ``annieray batch-lappd`` commands write this schema, so a single reader
+    Both the full-detector ``litepath batch`` and the standalone-LAPPD
+    ``litepath batch-lappd`` commands write this schema, so a single reader
     works for either mode.
 
     Examples
@@ -392,7 +392,7 @@ def write_detectors(path: Path, detectors: list) -> None:
     """Write detector registry to HDF5."""
     rows = []
     for d in detectors:
-        from annieray.tracer import DET_SYS_PMT, DET_SYS_LAPPD_DEFAULT, DET_SYS_LAPPD_ANNIE
+        from litepath.tracer import DET_SYS_PMT, DET_SYS_LAPPD_DEFAULT, DET_SYS_LAPPD_ANNIE
         sys_code = {
             "pmt": DET_SYS_PMT,
             "lappd_default": DET_SYS_LAPPD_DEFAULT,
@@ -425,7 +425,7 @@ def write_full_hits(path: Path, hits: np.ndarray,
     Matches the previous output.py ``write_hits()`` signature; the
     file extension should be ``.h5`` instead of ``.parquet``.
     """
-    from annieray.tracer import (
+    from litepath.tracer import (
         HI, HT, HX, HY, HZ, HNX, HNY, HNZ,
         HCID, HDI, HDS, HLU, HLV, HMAT,
         N_HIT_COLS, H_ARRIVAL, H_WAVELEN, H_BOUNCE, H_SOURCE, N_EXPANDED_COLS,

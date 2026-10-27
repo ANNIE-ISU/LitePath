@@ -89,7 +89,7 @@ def compute_per_pmt_sigma(
 
     Uses ``PMT_TYPE_DEFAULTS`` when available; otherwise *fallback*.
     """
-    from annieray.pmt_response import PMT_TYPE_DEFAULTS
+    from litepath.pmt_response import PMT_TYPE_DEFAULTS
 
     sigma: dict[int, float] = {}
     for d in geometry.detectors:

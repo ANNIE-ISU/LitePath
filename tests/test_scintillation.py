@@ -5,18 +5,18 @@ source tagging in the expanded hit array.
 import numpy as np
 import pytest
 
-from annieray.scintillation import (
+from litepath.scintillation import (
     sample_scintillation_delay,
     sample_scintillation_wavelengths,
     generate_scintillation_photons,
 )
-from annieray.cherenkov import generate_cherenkov_photons
+from litepath.cherenkov import generate_cherenkov_photons
 
 # Speed of light in m/s (matches cherenkov.py / scintillation.py)
 _C = 299792458.0
 _BETA = 0.999999
 _MUON_SPEED_M_S = _BETA * _C  # muon speed in m/s
-from annieray.tracer import (
+from litepath.tracer import (
     H_SOURCE, H_WAVELEN, H_ARRIVAL,
     SOURCE_CKV, SOURCE_SCI,
     N_EXPANDED_COLS, N_HIT_COLS,

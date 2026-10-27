@@ -3,7 +3,7 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "annieray"
+name = "litepath"
 version = "0.1.0"
 description = "GPU-accelerated ray tracer for ANNIE detector"
 requires-python = ">=3.11"
@@ -17,17 +17,17 @@ dependencies = [
 ]
 
 [project.scripts]
-annieray = "annieray.cli:main"
+litepath = "litepath.cli:main"
 
 [project.optional-dependencies]
-# WAGLE ROOT parsing for `annieray benchmark`
+# WAGLE ROOT parsing for `litepath benchmark`
 benchmark = [
     "uproot>=5",
     "awkward>=2",
 ]
 
 [tool.setuptools.packages.find]
-include = ["annieray*"]
+include = ["litepath*"]
 
 [tool.pytest.ini_options]
 addopts = "-m 'not slow'"

@@ -1,6 +1,6 @@
 # Default optical surface properties for ANNIE materials.
 #
-# Material ID keys match the MaterialID enum in annieray/materials.py.
+# Material ID keys match the MaterialID enum in litepath/materials.py.
 # Each entry defines how a photon interacts at the material boundary.
 #
 # model:

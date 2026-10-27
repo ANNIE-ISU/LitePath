@@ -17,9 +17,9 @@ import pytest
 
 import taichi as ti
 
-from annieray.batch import BatchConfig, run_batch
-from annieray.io_h5 import BatchReader
-from annieray.tracer import build_geometry
+from litepath.batch import BatchConfig, run_batch
+from litepath.io_h5 import BatchReader
+from litepath.tracer import build_geometry
 
 ti.init(arch=ti.cpu, default_fp=ti.f32)
 

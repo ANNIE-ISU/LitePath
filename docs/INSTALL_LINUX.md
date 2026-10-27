@@ -112,7 +112,7 @@ pip install -e . --no-deps
 ## 5. Verify the installation
 
 ```bash
-python -c "import annieray; print('OK')"
+python -c "import litepath; print('OK')"
 # Optional — check Taichi backend:
 python -c "import taichi as ti; ti.init(); print(ti.lang.impl.current_cfg().arch)"
 ```
@@ -127,7 +127,7 @@ the package will still import — cadquery is only used when `--step` or
 On CPU (any machine):
 
 ```bash
-python -m annieray batch --events 10 --photons-per-cm 50
+python -m litepath batch --events 10 --photons-per-cm 50
 ```
 
 Expected output:
@@ -144,21 +144,21 @@ Done.
 python -c "
 import taichi as ti
 ti.init(arch=ti.cuda)
-from annieray.cli import main
+from litepath.cli import main
 main()
 " batch --events 500 --photons-per-cm 150
 ```
 
 Or set the arch directly in a one-off script.  For routine GPU use you can
-edit the `ti.init(arch=ti.cpu)` calls in `annieray/cli.py` and
-`annieray/viz_server.py` to `ti.cuda`.
+edit the `ti.init(arch=ti.cpu)` calls in `litepath/cli.py` and
+`litepath/viz_server.py` to `ti.cuda`.
 
 ### With PMT CSV and surfboard LAPPDs
 
 ```bash
 # Get the PMT positions file (ask the collaboration)
 # Then:
-python -m annieray batch \
+python -m litepath batch \
     --pmt-csv PMTPositions_Scan.txt \
     --surfboard 3 --lappd-model annie \
     --events 100 --photons-per-cm 150
@@ -172,7 +172,7 @@ browser only does WebGL rendering of the scene.  No special server GPU is
 needed for the viewer.
 
 ```bash
-python -m annieray viz-server \
+python -m litepath viz-server \
     --pmt-csv PMTPositions_Scan.txt \
     --port 8080
 ```

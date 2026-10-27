@@ -34,8 +34,8 @@ placed_tips.csv
 scan files by part/
 
 # Runtime state (generated per-environment)
-annieray/lappd_corrections.csv
-annieray/cherenkov_old.py
+litepath/lappd_corrections.csv
+litepath/cherenkov_old.py
 
 # IDE
 .vscode/

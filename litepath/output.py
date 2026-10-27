@@ -18,11 +18,11 @@ def write_hits(
     Delegates to ``io_h5.write_full_hits()``.  The *path* should
     end in ``.h5``.
     """
-    from annieray.io_h5 import write_full_hits
+    from litepath.io_h5 import write_full_hits
     write_full_hits(path, hits, photon_ids=photon_ids)
 
 
 def write_detector_config(detectors: list, path: Path) -> None:
     """Write detector registry to YAML."""
-    from annieray.detectors import detector_config_to_yaml
+    from litepath.detectors import detector_config_to_yaml
     detector_config_to_yaml(detectors, path)

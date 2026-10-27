@@ -20,8 +20,8 @@ from pathlib import Path
 
 import numpy as np
 
-from annieray.tracer import build_geometry
-from annieray.fitting import load_observed_event, grid_scan_direction
+from litepath.tracer import build_geometry
+from litepath.fitting import load_observed_event, grid_scan_direction
 
 
 def _parse_range(s: str) -> tuple[float, float, int]:

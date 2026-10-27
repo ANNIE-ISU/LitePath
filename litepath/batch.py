@@ -18,13 +18,13 @@ from typing import Optional
 import h5py
 import numpy as np
 
-from annieray.io_h5 import (
+from litepath.io_h5 import (
     PHOTON_HIT_DTYPE, MUON_TRUTH_DTYPE, PMT_RESPONSE_DTYPE,
     LAPPD_READOUT_DTYPE, SCHEMA_VERSION, FORMAT_NAME,
     SOURCE_TRACK, SOURCE_LIGHT_BURST, SOURCE_SPOT,
     append_table,
 )
-from annieray.tracer import (
+from litepath.tracer import (
     HI, HT, HDI, HDS, HLU, HLV, H_ARRIVAL, H_WAVELEN, H_BOUNCE, H_SOURCE,
     DET_SYS_PMT, DET_SYS_LAPPD_ANNIE, DET_SYS_NONE,
     N_HIT_COLS, N_EXPANDED_COLS,
@@ -32,7 +32,7 @@ from annieray.tracer import (
     SOURCE_CKV, SOURCE_SCI,
     trace_rays, trace_cherenkov, trace_muon_light, compute_track_length, Geometry,
 )
-from annieray.optics import WaterAttenuation
+from litepath.optics import WaterAttenuation
 
 
 # ---------------------------------------------------------------------------
@@ -464,9 +464,9 @@ def run_batch(
         ``{"photon_hits": ..., "pmt_responses": ...}`` — only keys that
         were actually written.
     """
-    from annieray.cherenkov import generate_cherenkov_photons, generate_isotropic_photons
-    from annieray.scintillation import generate_scintillation_photons
-    from annieray.pmt_response import process_pmt_hits
+    from litepath.cherenkov import generate_cherenkov_photons, generate_isotropic_photons
+    from litepath.scintillation import generate_scintillation_photons
+    from litepath.pmt_response import process_pmt_hits
 
     rng = np.random.default_rng(config.seed)
     accumulator = BatchAccumulator(
@@ -569,8 +569,8 @@ def run_batch(
             scattering_length_mm=config.water_scattering_mm,
         )
         if config.max_bounces > 0 or water_cfg.is_active:
-            from annieray.tracer import trace_with_optics
-            from annieray.optics import load_optics_config
+            from litepath.tracer import trace_with_optics
+            from litepath.optics import load_optics_config
             cfg = optics_config if optics_config is not None else load_optics_config(None)
             hits, bounce_counts, orig_indices = trace_with_optics(
                 all_origins, all_dirs, geometry, cfg,
@@ -642,7 +642,7 @@ def run_batch(
 
             lappd_responses = None
             if config.lappd_response:
-                from annieray.lappd_response import process_hits as process_lappd_hits
+                from litepath.lappd_response import process_hits as process_lappd_hits
                 lappd_responses = process_lappd_hits(
                     event_hits, rng_seed=rng.integers(0, 2**31),
                 )

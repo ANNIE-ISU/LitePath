@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Event display for ANNIE batch output.
 
-Reads ``output.h5`` produced by ``annieray batch``.  Shows a three-panel
+Reads ``output.h5`` produced by ``litepath batch``.  Shows a three-panel
 layout:
 
   Top view    – top endcap PMTs (panel 9) at (x, y) in tank cross-section
@@ -14,10 +14,10 @@ at φ = 135°).  ``--center-phi`` overrides that choice.  The azimuth is mirrore
 about the vertical plane so the barrel and endcaps read left-right as seen from
 *inside* the tank (the WCSim scan→world map is left-handed; see
 :func:`plot_phi`); the endcap views are also rotated so the beam points up.
-``--mark-pmt ID ...`` rings/labels specific PMTs (annieray detector index or
+``--mark-pmt ID ...`` rings/labels specific PMTs (litepath detector index or
 WAGLE Tube ID) for orientation cross-checks.
 
-It also reads the WAGLE benchmark files written by ``annieray benchmark``
+It also reads the WAGLE benchmark files written by ``litepath benchmark``
 (``results/benchmark/{data,mc}.h5``): those have no ``photon_hits`` table,
 so hit counts and first-hit times are taken from the ``pmt_hits`` table
 instead, and the track's entry/exit points are marked on the tank boundary.
@@ -43,13 +43,13 @@ from matplotlib.widgets import Button
 from matplotlib.patches import Circle
 from matplotlib.colors import Normalize
 
-from annieray.io_h5 import load_table, read_attrs
+from litepath.io_h5 import load_table, read_attrs
 
 
 # ---------------------------------------------------------------------------
 # Handedness
 # ---------------------------------------------------------------------------
-# The WCSim scan -> annieray world map is left-handed in the (pmt_x, pmt_z)
+# The WCSim scan -> litepath world map is left-handed in the (pmt_x, pmt_z)
 # plane (``pmt_loader._scan_to_tank`` uses the WCSim-faithful
 # ``Y_w = (168.1 - pmt_z) * 10``), so the world azimuth ``atan2(y, x)`` winds
 # opposite to the way the detector looks when viewed from inside the tank.
@@ -69,7 +69,7 @@ def plot_phi(az_deg):
 
 
 def load_data(h5_path, first_hit_time=False, charge=False, time=False):
-    """Load hit/charge/time data from an annieray HDF5 file.
+    """Load hit/charge/time data from an litepath HDF5 file.
 
     Works for both the raytracer output (``photon_hits``) and the WAGLE
     benchmark files (``pmt_hits``).  Counts and first-hit times are returned
@@ -376,7 +376,7 @@ class Display:
         self.bl_keys, self.bl_xs, self.bl_ys = keys_and_coords(self.barrel_lappd)
         self.bot_keys, self.bot_xs, self.bot_ys = keys_and_coords(self.bottom)
 
-        # Label lookup: annieray detector_index and WAGLE Tube ID -> label.
+        # Label lookup: litepath detector_index and WAGLE Tube ID -> label.
         # The PMT label is stored as e.g. b"PMT_410"; the trailing integer is
         # the WAGLE Tube ID, which is what the user knows from the hardware.
         self.labels = {}
@@ -503,7 +503,7 @@ class Display:
         if s_bp or s_bl:
             self.ax_barrel.legend(loc="upper right", fontsize=9, markerscale=0.9)
 
-        # Mark specific PMTs by annieray detector index or WAGLE Tube ID, so the
+        # Mark specific PMTs by litepath detector index or WAGLE Tube ID, so the
         # user can cross-check the orientation against the hardware.
         self.mark_keys = []
         for token in args.mark_pmt:
@@ -545,9 +545,9 @@ class Display:
                          (s_bl, self.bl_keys), (s_bot, self.bot_keys)]
 
     def _resolve_pmt(self, token):
-        """Resolve a --mark-pmt token to an annieray detector index.
+        """Resolve a --mark-pmt token to an litepath detector index.
 
-        Accepts an annieray detector index (e.g. ``96``), a WAGLE Tube ID (e.g.
+        Accepts an litepath detector index (e.g. ``96``), a WAGLE Tube ID (e.g.
         ``428`` or ``PMT_428``), or a full label.
         """
         s = str(token)
@@ -628,14 +628,14 @@ def main():
     parser.add_argument("--mark-pmt", type=str, nargs="+", default=[],
                         metavar="ID",
                         help="Ring and label the given PMTs on the barrel to "
-                             "cross-check the orientation.  Accepts an annieray "
+                             "cross-check the orientation.  Accepts an litepath "
                              "detector index or a WAGLE Tube ID (e.g. 428 or "
                              "PMT_428).")
     parser.add_argument("--center-phi", type=float, default=None,
                         help="Azimuth (deg) the unrolled barrel is centred on. "
                              "Default: auto-detect the octagon corner the beam "
                              "looks into (135 deg for WAGLE, whose beam runs at "
-                             "phi=135 in the annieray world frame).")
+                             "phi=135 in the litepath world frame).")
     args = parser.parse_args()
 
     if args.input.suffix == ".h5":

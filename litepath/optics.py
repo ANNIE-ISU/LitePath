@@ -13,7 +13,7 @@ from typing import Optional
 
 import numpy as np
 
-from annieray.materials import MaterialID
+from litepath.materials import MaterialID
 
 # ---------------------------------------------------------------------------
 # Material optical config

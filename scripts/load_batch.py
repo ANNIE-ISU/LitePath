@@ -4,14 +4,14 @@ Usage:
     python scripts/load_batch.py results/output.h5
     python scripts/load_batch.py /tmp/batch_out/       # reads <dir>/output.h5
 
-Both `annieray batch` and `annieray batch-lappd` write the same HDF5 format,
+Both `litepath batch` and `litepath batch-lappd` write the same HDF5 format,
 so this script works on either.
 """
 
 import argparse
 from pathlib import Path
 
-from annieray.io_h5 import BatchReader
+from litepath.io_h5 import BatchReader
 
 
 def main() -> None:

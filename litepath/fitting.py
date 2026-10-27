@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from annieray.tracer import (
+from litepath.tracer import (
     Geometry,
     trace_cherenkov,
     DET_SYS_PMT,
@@ -17,8 +17,8 @@ from annieray.tracer import (
     HDS,
     H_ARRIVAL,
 )
-from annieray.io_h5 import load_table
-from annieray.likelihood import (
+from litepath.io_h5 import load_table
+from litepath.likelihood import (
     poisson_charge_ll,
     time_residual_ll,
     total_log_likelihood,

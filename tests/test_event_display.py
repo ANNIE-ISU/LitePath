@@ -3,7 +3,7 @@
 ``scripts/event_display.py`` cannot be imported as a package module, so it is
 loaded by path.  Only the pure-python geometry helpers are exercised here.
 
-The WCSim scan -> annieray world map is left-handed in the ``(pmt_x, pmt_z)``
+The WCSim scan -> litepath world map is left-handed in the ``(pmt_x, pmt_z)``
 plane, so the world azimuth ``atan2(y, x)`` winds opposite to the way the
 detector looks when viewed from inside the tank.  The event display mirrors the
 azimuth (``plot_phi``) so the barrel and endcaps read the inside-view way.

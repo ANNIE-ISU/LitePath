@@ -18,8 +18,8 @@ from typing import Optional
 
 import numpy as np
 
-from annieray.tracer import HDI, HDS, HLU, HLV, H_ARRIVAL, H_WAVELEN
-from annieray.tracer import DET_SYS_PMT
+from litepath.tracer import HDI, HDS, HLU, HLV, H_ARRIVAL, H_WAVELEN
+from litepath.tracer import DET_SYS_PMT
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +93,7 @@ class PMTResponseConfig:
         Uses per-PMT-type defaults when available, falling back to
         *global_config* (or the default constructor).
         """
-        from annieray.detectors import DetectorInfo
+        from litepath.detectors import DetectorInfo
 
         global_cfg = global_config if global_config is not None else cls()
         lookup: dict[int, PMTResponseConfig] = {}

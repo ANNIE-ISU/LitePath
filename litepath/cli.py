@@ -1,4 +1,4 @@
-"""CLI for annieray ray tracer."""
+"""CLI for litepath ray tracer."""
 
 from __future__ import annotations
 
@@ -8,19 +8,19 @@ from pathlib import Path
 
 import numpy as np
 
-from annieray.tracer import (
+from litepath.tracer import (
     build_geometry,
     trace_rays,
     trace_cherenkov,
     Geometry,
 )
-from annieray.optics import WaterAttenuation, load_optics_config
-from annieray.output import write_hits, write_detector_config
+from litepath.optics import WaterAttenuation, load_optics_config
+from litepath.output import write_hits, write_detector_config
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="annieray",
+        prog="litepath",
         description="GPU-accelerated ray tracer for ANNIE detector",
     )
     sub = p.add_subparsers(dest="command", required=True)
@@ -191,10 +191,10 @@ def build_parser() -> argparse.ArgumentParser:
     batch.add_argument("--burst-position", type=str, default=None,
                        help="Burst centre: 'x y z' in mm (default: tank centre) ")
 
-    # ---- benchmark subcommand (WAGLE ROOT -> annieray HDF5) ----
+    # ---- benchmark subcommand (WAGLE ROOT -> litepath HDF5) ----
     bench = sub.add_parser(
         "benchmark",
-        help="Convert WAGLE ROOT trees (data / MC) into the annieray "
+        help="Convert WAGLE ROOT trees (data / MC) into the litepath "
              "batch HDF5 schema for benchmarking",
     )
     bench.add_argument("--data", type=Path, default=None,
@@ -391,7 +391,7 @@ def _generate_cherenkov(
 
     Returns (origins, directions) arrays, each (N, 3) float32.
     """
-    from annieray.cherenkov import generate_cherenkov_photons
+    from litepath.cherenkov import generate_cherenkov_photons
 
     origins, directions, create_times = generate_cherenkov_photons(
         muon_pos, muon_dir, photons_per_cm,
@@ -477,7 +477,7 @@ def run_command(args: argparse.Namespace) -> None:
     n_hit = int(hits[:, 0].sum())
     print(f"\nResults: {n_hit}/{total_photons} hit ({n_hit / total_photons * 100:.1f}%)")
 
-    from annieray.tracer import CID_PMT, CID_LAPPD, CID_INNER_STRUCTURE, CID_TANK_WALL
+    from litepath.tracer import CID_PMT, CID_LAPPD, CID_INNER_STRUCTURE, CID_TANK_WALL
     cid_names = {CID_INNER_STRUCTURE: "structure", CID_PMT: "PMT", CID_LAPPD: "LAPPD", CID_TANK_WALL: "tank"}
     for cid in range(1, 5):
         count = int((hits[:, 8] == cid).sum())
@@ -511,7 +511,7 @@ def build_detector_config_command(args: argparse.Namespace) -> None:
 
 
 def extract_manifest_command(args: argparse.Namespace) -> None:
-    from annieray.step_parser import parse_step
+    from litepath.step_parser import parse_step
 
     print(f"Parsing {args.step}...")
     t0 = time.time()
@@ -535,7 +535,7 @@ def _count_muon_lines(path: Path) -> int:
 
 
 def batch_command(args: argparse.Namespace) -> None:
-    from annieray.batch import BatchConfig, run_batch
+    from litepath.batch import BatchConfig, run_batch
 
     # Auto-detect event count from muon file
     if args.events == -1:
@@ -624,7 +624,7 @@ def batch_command(args: argparse.Namespace) -> None:
     import json
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    from annieray.batch import H5_OUTPUT_NAME
+    from litepath.batch import H5_OUTPUT_NAME
     h5_path = output_dir / H5_OUTPUT_NAME
 
     if args.light_burst:
@@ -671,7 +671,7 @@ def batch_command(args: argparse.Namespace) -> None:
 
     # Write metadata and detectors into the HDF5 file (append mode)
     if h5_path.exists():
-        from annieray.io_h5 import write_metadata, write_detectors
+        from litepath.io_h5 import write_metadata, write_detectors
         meta = {
             "tank_radius_mm": geom.tank_radius,
             "tank_z_min_mm": geom.tank_z_min,
@@ -689,8 +689,8 @@ def batch_command(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 def benchmark_command(args: argparse.Namespace) -> None:
-    """Convert WAGLE ROOT trees into the annieray batch HDF5 schema."""
-    from annieray.benchmark import (
+    """Convert WAGLE ROOT trees into the litepath batch HDF5 schema."""
+    from litepath.benchmark import (
         RootTreeReader,
         load_pmt_registry,
         write_benchmark_h5,
@@ -739,8 +739,8 @@ def benchmark_command(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 def lappd_batch_command(args: argparse.Namespace) -> None:
-    from annieray.lappd_batch import LAPPDBatchConfig, run_lappd_batch
-    from annieray.tracer import build_single_lappd_geometry
+    from litepath.lappd_batch import LAPPDBatchConfig, run_lappd_batch
+    from litepath.tracer import build_single_lappd_geometry
 
     # --events default: grid product, muon-file line count, or 100
     n_events = args.events
@@ -806,14 +806,14 @@ def lappd_batch_command(args: argparse.Namespace) -> None:
 
     if args.show_config:
         print(f"\n{'=' * 20} config {'=' * 20}")
-        from annieray.lappd_batch import config_to_dict
+        from litepath.lappd_batch import config_to_dict
         for k, v in config_to_dict(config).items():
             print(f"  {k}: {v}")
         print("=" * 48)
         return
 
     optics_cfg = None
-    from annieray.optics import load_optics_config, WaterAttenuation
+    from litepath.optics import load_optics_config, WaterAttenuation
     water_cfg = WaterAttenuation(
         absorption_length_mm=args.water_absorption_mm,
         scattering_length_mm=args.water_scattering_mm,
@@ -845,7 +845,7 @@ def _parse_range(s: str) -> tuple[float, float, int]:
 
 
 def fit_command(args: argparse.Namespace) -> None:
-    from annieray.fitting import load_observed_event, grid_scan_direction
+    from litepath.fitting import load_observed_event, grid_scan_direction
 
     # Resolve PMT CSV (default: PMTPositions_Scan.txt in current directory)
     pmt_csv = args.pmt_csv
@@ -983,11 +983,11 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "build-detector-config":
         build_detector_config_command(args)
     elif args.command == "viz-server":
-        from annieray.viz_server import run_server
+        from litepath.viz_server import run_server
 
         run_server(args)
     elif args.command == "viz-lappd":
-        from annieray.viz_lappd_server import run_server as run_lappd_server
+        from litepath.viz_lappd_server import run_server as run_lappd_server
 
         run_lappd_server(host=args.host, port=args.port)
     elif args.command == "batch":

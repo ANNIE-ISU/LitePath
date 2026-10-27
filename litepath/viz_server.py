@@ -4,7 +4,7 @@ Serves a Three.js frontend with real-time ray tracing of Cherenkov cones
 from a user-controlled muon track.
 
 Usage:
-    python -m annieray viz-server \
+    python -m litepath viz-server \
         --pmt-csv PMTPositions_Scan.txt
 """
 
@@ -22,10 +22,10 @@ from urllib.parse import urlparse, parse_qs
 
 import numpy as np
 
-from annieray.pmt_loader import rotate_z
-from annieray.pmt_mesh import build_viz_caches
-from annieray.tracer import build_geometry, trace_muon_light, reload_lappd_corrections
-from annieray.tracer import HI, HCID, HX, HZ, H_SOURCE, SOURCE_CKV, SOURCE_SCI
+from litepath.pmt_loader import rotate_z
+from litepath.pmt_mesh import build_viz_caches
+from litepath.tracer import build_geometry, trace_muon_light, reload_lappd_corrections
+from litepath.tracer import HI, HCID, HX, HZ, H_SOURCE, SOURCE_CKV, SOURCE_SCI
 
 geometry = None
 
@@ -288,7 +288,7 @@ class VizHandler(BaseHTTPRequestHandler):
     def _handle_lappd_readout(self, data):
         _proc_lappd = None
         try:
-            from annieray.lappd_response import process_hits as _proc_lappd
+            from litepath.lappd_response import process_hits as _proc_lappd
         except ImportError:
             self._send_json({"error": "lappd_response module not available"}, 400)
             return
@@ -2689,7 +2689,7 @@ def run_server(args):
     print(f"  Mesh: {geometry.mesh_vertices.shape[0]} verts, {geometry.mesh_triangles.shape[0]} tris")
     print(f"  PMTs: {geometry.pmt_centers.shape[0]}")
 
-    from annieray.pmt_loader import load_pmts
+    from litepath.pmt_loader import load_pmts
     pmt_info = load_pmts(pmt_csv, z_offset=args.z_offset,
                          bottom_rotation_deg=args.bottom_rot,
                          bottom_spin_deg=args.bottom_spin,

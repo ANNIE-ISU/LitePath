@@ -12,7 +12,7 @@ import pytest
 
 import taichi as ti
 
-from annieray.tracer import (
+from litepath.tracer import (
     H_ARRIVAL, H_SOURCE,
     SOURCE_SCI,
     build_geometry,

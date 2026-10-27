@@ -4,8 +4,8 @@ Usage:
     python scripts/fit_viewer.py <grid.npz>              # auto-detect
     python scripts/fit_viewer.py <grid.npz> --polar       # force polar
     python scripts/fit_viewer.py <grid.npz> --rect        # force rectangular
-    python -m annieray fit ... --show                     # auto-detect
-    python -m annieray fit ... --show --polar             # force polar
+    python -m litepath fit ... --show                     # auto-detect
+    python -m litepath fit ... --show --polar             # force polar
 """
 
 from __future__ import annotations

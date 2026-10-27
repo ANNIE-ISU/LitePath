@@ -47,7 +47,7 @@ def compute_scan_octagon() -> dict:
 
 def compute_gdml_octagon() -> dict:
     """Determine GDML octagon geometry from the structure mesh."""
-    from annieray.gdml_parser import parse_gdml
+    from litepath.gdml_parser import parse_gdml
 
     gdml_path = Path(__file__).resolve().parent.parent / "PHASE2_INNER_STRUCTURE_closed.gdml"
     verts, _ = parse_gdml(gdml_path)

@@ -1,4 +1,4 @@
-# ANNIEraytracing
+# LitePath
 
 GPU-accelerated ray tracer for the ANNIE detector, implemented in Taichi.
 Traces photons through a GDML-detailed inner structure, PMTs, LAPPDs, and
@@ -15,41 +15,41 @@ with on-the-fly raytracing per hypothesis.
 
 ```bash
 # Batch-mode simulation (Cherenkov)
-python -m annieray batch \
+python -m litepath batch \
     --pmt-csv PMTPositions_Scan.txt \
     --events 100 --photons-per-cm 150
 
 # Batch-mode simulation with wbLS scintillation (adds to Cherenkov)
-python -m annieray batch \
+python -m litepath batch \
     --pmt-csv PMTPositions_Scan.txt \
     --events 100 --photons-per-cm 150 \
     --scintillation --photons-per-cm-scint 100
 
 # Scintillation-only batch (Cherenkov off)
-python -m annieray batch \
+python -m litepath batch \
     --pmt-csv PMTPositions_Scan.txt \
     --events 100 --photons-per-cm 0 \
     --scintillation --photons-per-cm-scint 100
 
 # Batch mode on a standalone LAPPD module (same output format as 'batch')
-python -m annieray batch-lappd \
+python -m litepath batch-lappd \
     --source cherenkov --sample-mode grid \
     --grid-steps 9 5 --photons-per-cm 150 --lappd-response
 
 # Standalone LAPPD batch with a focused spot beam onto the photocathode
-python -m annieray batch-lappd \
+python -m litepath batch-lappd \
     --source spot --n-photons 5000 --spread-deg 2 \
     --intercept 0 -45 3.5 --lappd-response
 
 # Direction fit for a single event (grid scan, runs raytracing per hypothesis)
-python -m annieray fit output.h5 --event 0 --show
+python -m litepath fit output.h5 --event 0 --show
 
 # Zoomed-in fit around the true direction
-python -m annieray fit output.h5 --event 0 \
+python -m litepath fit output.h5 --event 0 \
     --theta-window 10 --grid-steps 21 --show
 
 # Interactive 3D viewer (scintillation toggle + parameters in Trace panel)
-python -m annieray viz-server \
+python -m litepath viz-server \
     --pmt-csv PMTPositions_Scan.txt --port 8080
 ```
 
@@ -61,7 +61,7 @@ Runs N events on the GPU, writing results to a single HDF5 file. No
 display server required.
 
 ```
-python -m annieray batch [flags]
+python -m litepath batch [flags]
 ```
 
 | Flag | Default | Description |
@@ -122,7 +122,7 @@ additional book-keeping.
 The exact schema (column layouts, root attributes, per-mode table
 presence, and the truth/source-type conventions) is documented in
 [`BATCH_OUTPUT.md`](BATCH_OUTPUT.md); the `BatchReader` class in
-`annieray/io_h5.py` is the canonical way to load any batch output file.
+`litepath/io_h5.py` is the canonical way to load any batch output file.
 
 ### `batch-lappd` — Batch-mode events on a standalone LAPPD module
 
@@ -140,7 +140,7 @@ Two light sources, matching `viz-lappd`:
   aimed at a specific photocathode point via `--intercept x y z`.
 
 ```
-python -m annieray batch-lappd [flags]
+python -m litepath batch-lappd [flags]
 ```
 
 | Flag | Default | Description |
@@ -172,7 +172,7 @@ then evaluates the Poisson charge likelihood (+ optional Gaussian time
 residual likelihood).
 
 ```
-python -m annieray fit output.h5 [--event 0] [flags]
+python -m litepath fit output.h5 [--event 0] [flags]
 ```
 
 | Flag | Default | Description |
@@ -245,14 +245,14 @@ Typical end-to-end workflow:
 
 ```bash
 # 1. Simulate events
-python -m annieray batch --pmt-csv PMTPositions_Scan.txt \
+python -m litepath batch --pmt-csv PMTPositions_Scan.txt \
     --events 100 --photons-per-cm 150 --pmt-response
 
 # 2. Coarse full-sky direction fit for one event
-python -m annieray fit results/output.h5 --event 0 --show
+python -m litepath fit results/output.h5 --event 0 --show
 
 # 3. Zoom in around the best direction for precision
-python -m annieray fit results/output.h5 --event 0 \
+python -m litepath fit results/output.h5 --event 0 \
     --theta-window 10 --phi-window 10 --grid-steps 41 \
     --save-grid grid.npz --show
 
@@ -265,7 +265,7 @@ python scripts/fit_viewer.py grid.npz --clip 10 --polar
 ```
 
 The search reuses a single pre-built `Geometry` and calls
-`trace_cherenkov()` once per hypothesis in `annieray/fitting.py`.
+`trace_cherenkov()` once per hypothesis in `litepath/fitting.py`.
 The truth direction from `muon_truth` is stored in the `ScanResult` so
 that fit residuals can be computed for validation.
 
@@ -356,7 +356,7 @@ python scripts/generate_muon_grid.py --n-steps 1 > MuonStartsAndDirecs_1x1.txt
 | `--n-steps` | 3 | Number of angle steps per axis |
 | `--half-range` | 22.5 | Half-range of angles in degrees |
 
-The output feeds `annieray batch --muon-file MuonStartsAndDirecs_angled.txt`.
+The output feeds `litepath batch --muon-file MuonStartsAndDirecs_angled.txt`.
 
 ### `event_display.py`
 
@@ -391,7 +391,7 @@ $$LL_{\text{charge}} = \sum_i \left[ n_i \ln(\mu_i) - \mu_i - \ln(n_i!) \right]$
 
 where `μ_i` is the expected number of hits from the hypothesis (computed
 by tracing Cherenkov photons) and `n_i` is the observed count.  PMTs with
-no observed hits contribute `-μ_i`.  Implemented in `annieray/likelihood.py`.
+no observed hits contribute `-μ_i`.  Implemented in `litepath/likelihood.py`.
 
 ### Gaussian time residual likelihood
 
@@ -523,7 +523,7 @@ of Fresnel reflection/transmission and diffuse reflection per material.
 
 Water attenuation is enabled with `--water-absorption-mm` and
 `--water-scattering-mm` (via the `WaterAttenuation` config in
-`annieray/optics.py`). When either is active, `trace_with_optics()`
+`litepath/optics.py`). When either is active, `trace_with_optics()`
 applies exponential absorption and Rayleigh scattering along the photon
 path. Both are off by default (`0.0` = disabled).
 

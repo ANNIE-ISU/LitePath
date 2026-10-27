@@ -1,4 +1,4 @@
-"""Tests for the WAGLE ROOT → annieray HDF5 conversion (``annieray.benchmark``).
+"""Tests for the WAGLE ROOT → litepath HDF5 conversion (``litepath.benchmark``).
 
 The pure-python parts (frame transforms, angle conventions, PMT registry) are
 tested here; the ROOT parsing itself is covered by a slow test that needs the
@@ -10,7 +10,7 @@ import math
 import numpy as np
 import pytest
 
-from annieray.benchmark import (
+from litepath.benchmark import (
     DET_ROTATION_DEG,
     HALF_WC_LENGTH,
     ROOT_TANK_AXIS_Y_MAX,
@@ -20,7 +20,7 @@ from annieray.benchmark import (
     TANK_Z_MIN_MM,
     PMTRegistry,
     _tank_chord_root,
-    annieray_angles,
+    litepath_angles,
     load_pmt_registry,
     root_angles,
     root_to_world,
@@ -58,7 +58,7 @@ def test_direction_transform_is_rotation_only():
 def test_root_to_world_translation_is_tank_centre():
     """The ROOT origin (tank centre) maps to the structure-frame origin.
 
-    The annieray world frame puts the structure-frame origin 1980 mm below
+    The litepath world frame puts the structure-frame origin 1980 mm below
     the tank centre, i.e. at z = 1980 mm.
     """
     out = root_to_world(np.zeros(3))
@@ -86,20 +86,20 @@ def test_transform_is_orthogonal():
 # ---------------------------------------------------------------------------
 
 
-def test_annieray_angles_convention():
+def test_litepath_angles_convention():
     """theta = angle from -z (0 = straight down); phi = atan2(y, x)."""
-    theta, phi = annieray_angles((0.0, 0.0, -1.0))
+    theta, phi = litepath_angles((0.0, 0.0, -1.0))
     assert theta == pytest.approx(0.0, abs=1e-6)
     assert phi == pytest.approx(0.0, abs=1e-6)
 
-    theta, phi = annieray_angles((0.0, 0.0, 1.0))
+    theta, phi = litepath_angles((0.0, 0.0, 1.0))
     assert theta == pytest.approx(180.0, abs=1e-6)
 
-    theta, phi = annieray_angles((1.0, 0.0, 0.0))
+    theta, phi = litepath_angles((1.0, 0.0, 0.0))
     assert theta == pytest.approx(90.0, abs=1e-6)
     assert phi == pytest.approx(0.0, abs=1e-6)
 
-    theta, phi = annieray_angles((0.0, 1.0, 0.0))
+    theta, phi = litepath_angles((0.0, 1.0, 0.0))
     assert phi == pytest.approx(90.0, abs=1e-6)
 
 
@@ -132,9 +132,9 @@ def test_registry_has_132_pmts(registry: PMTRegistry):
 
 
 def test_registry_matches_pmt_loader(registry: PMTRegistry):
-    """The registry must agree with annieray.pmt_loader (detector indices)."""
+    """The registry must agree with litepath.pmt_loader (detector indices)."""
     from pathlib import Path
-    from annieray.pmt_loader import load_pmts
+    from litepath.pmt_loader import load_pmts
 
     pmt = load_pmts(Path("PMTPositions_Scan.txt"),
                     det_rotation_deg=DET_ROTATION_DEG)
@@ -178,7 +178,7 @@ DATA_H5 = "results/benchmark/mc.h5"
     reason="WAGLE MC ROOT file not available",
 )
 def test_root_reader_reads_mc_tree():
-    from annieray.benchmark import RootTreeReader
+    from litepath.benchmark import RootTreeReader
 
     reader = RootTreeReader(DATA_ROOT)
     assert reader.has_truth
@@ -198,7 +198,7 @@ def test_root_reader_reads_mc_tree():
     reason="converted benchmark file not present",
 )
 def test_converted_file_has_expected_tables():
-    from annieray.io_h5 import BatchReader
+    from litepath.io_h5 import BatchReader
 
     br = BatchReader(DATA_H5)
     tables = br.summary()["tables"]
@@ -221,7 +221,7 @@ ROOT_AVAILABLE = __import__("pathlib").Path(DATA_ROOT).exists()
 @pytest.fixture(scope="module")
 def mc_hits():
     """The WAGLE MC hits, as (tube_id, position) pairs in the world frame."""
-    from annieray.benchmark import RootTreeReader, root_to_world
+    from litepath.benchmark import RootTreeReader, root_to_world
 
     reader = RootTreeReader(DATA_ROOT)
     positions = {}
@@ -293,10 +293,10 @@ def test_pmt_positions_agree_with_the_raytracer(mc_hits, registry: PMTRegistry):
 def test_beam_azimuth_is_135_degrees():
     """In the world frame the WAGLE beam runs at phi = 135 deg.
 
-    135 deg is a corner of the inner-structure octagon.  The annieray
+    135 deg is a corner of the inner-structure octagon.  The litepath
     ``--muon-mode beam`` helper uses +Y (90 deg), which is 45 deg away.
     """
-    from annieray.benchmark import RootTreeReader, root_to_world_direction
+    from litepath.benchmark import RootTreeReader, root_to_world_direction
 
     reader = RootTreeReader(DATA_ROOT)
     phis = []
@@ -318,7 +318,7 @@ def test_beam_azimuth_is_135_degrees():
 @pytest.mark.skipif(not ROOT_AVAILABLE, reason="WAGLE MC ROOT file not available")
 def test_world_frame_keeps_the_tank_vertical():
     """The y/z swap must not turn the beam vertical in the world frame."""
-    from annieray.benchmark import RootTreeReader, root_to_world_direction
+    from litepath.benchmark import RootTreeReader, root_to_world_direction
 
     reader = RootTreeReader(DATA_ROOT)
     dz = []
@@ -373,7 +373,7 @@ def _mrd_chunk(start_m, stop_m):
 
 
 def test_mrd_track_vertex_lands_on_tank_boundary():
-    from annieray.benchmark import TRUTH_KIND_MRD_RECO, RootTreeReader
+    from litepath.benchmark import TRUTH_KIND_MRD_RECO, RootTreeReader
 
     # MRD segment points back through the tank axis (start/stop in metres).
     track = RootTreeReader._mrd_track(
@@ -389,7 +389,7 @@ def test_mrd_track_vertex_lands_on_tank_boundary():
 
 
 def test_mrd_track_miss_stores_nan_vertex():
-    from annieray.benchmark import RootTreeReader
+    from litepath.benchmark import RootTreeReader
 
     track = RootTreeReader._mrd_track(
         None, _mrd_chunk((0.0, 0.0, 3.5), (1.0, 0.0, 3.5)), 0)
@@ -412,7 +412,7 @@ def test_converted_data_vertices_are_physical():
     plane, which produced ``world x == y`` vertices out to ~35 m.  Now finite
     vertices lie on the tank boundary; tracks that miss the tank are NaN.
     """
-    from annieray.benchmark import RootTreeReader, root_to_world
+    from litepath.benchmark import RootTreeReader, root_to_world
 
     reader = RootTreeReader(DATA_TREE)
     n_finite = n_nan = 0
