@@ -89,15 +89,17 @@ HDF5 event-index dataset or at least a warning.
 
 ## Status
 
-| Bug | Status |
-|-----|--------|
-| BUG-1 | Open |
-| BUG-2 | Open |
-| BUG-3 | Open |
-| BUG-4 | Open |
-| BUG-5 | Open |
-| BUG-6 | Open |
-| BUG-7 | Open |
-| BUG-8 | Open |
-| BUG-9 | Open |
-| BUG-10 | Open |
+Each bug is tracked as a GitHub issue in the [`v0.2-bugfixes` milestone](https://github.com/wetstein/ANNIEraytracing/milestone/1). Open/closed status lives there, not here.
+
+| Bug | Issue |
+|-----|-------|
+| BUG-1 | [#2](https://github.com/wetstein/ANNIEraytracing/issues/2) |
+| BUG-2 | [#3](https://github.com/wetstein/ANNIEraytracing/issues/3) |
+| BUG-3 | [#4](https://github.com/wetstein/ANNIEraytracing/issues/4) |
+| BUG-4 | [#5](https://github.com/wetstein/ANNIEraytracing/issues/5) |
+| BUG-5 | [#6](https://github.com/wetstein/ANNIEraytracing/issues/6) |
+| BUG-6 | [#7](https://github.com/wetstein/ANNIEraytracing/issues/7) |
+| BUG-7 | [#8](https://github.com/wetstein/ANNIEraytracing/issues/8) |
+| BUG-8 | [#9](https://github.com/wetstein/ANNIEraytracing/issues/9) |
+| BUG-9 | [#10](https://github.com/wetstein/ANNIEraytracing/issues/10) |
+| BUG-10 | [#11](https://github.com/wetstein/ANNIEraytracing/issues/11) |

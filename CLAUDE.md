@@ -27,9 +27,11 @@ changed before starting.
 2. **Rename to LitePath** — package rename (`annieray` → `litepath`), directory
    rename, `pyproject.toml`, all imports, CLI entry point, HDF5 format name,
    docs. Update `AGENTS.md` and this file after renaming.
-3. **GitHub project infrastructure** — create Issues for each bug and pending
-   feature, add labels (bug/critical/medium/minor, physics, io, cli, fitting),
-   create milestones (v0.2-bugfixes, v0.3-rename, v1.0-validated).
+3. **GitHub project infrastructure** — DONE for bugs (2026-10-27): labels
+   (critical/medium/minor, physics, io, cli, fitting), milestone
+   `v0.2-bugfixes`, issues #2–#11 = BUG-1–BUG-10 (offset by one: #1 is a
+   Discussion). Reference issues in fix commits ("Fixes #N"). Still to do:
+   issues for pending features; `v1.0-validated` milestone once defined.
 4. **Org transfer** — transfer `wetstein/ANNIEraytracing` → `ANNIE-ISU/LitePath`
    after the rename is complete and pushed.
 
