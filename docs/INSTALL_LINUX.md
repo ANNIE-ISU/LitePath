@@ -29,8 +29,8 @@ the server for compute.
 ## 1. Clone and initialise submodules
 
 ```bash
-git clone https://github.com/wetstein/ANNIEraytracing.git
-cd ANNIEraytracing
+git clone https://github.com/ANNIE-ISU/LitePath.git
+cd LitePath
 git submodule update --init
 ```
 
@@ -94,7 +94,7 @@ pip install taichi
 Then install the package itself (still inside the conda env):
 
 ```bash
-cd ANNIEraytracing
+cd LitePath
 pip install -e . --no-deps
 ```
 

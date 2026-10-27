@@ -89,17 +89,17 @@ HDF5 event-index dataset or at least a warning.
 
 ## Status
 
-Each bug is tracked as a GitHub issue in the [`v0.2-bugfixes` milestone](https://github.com/wetstein/ANNIEraytracing/milestone/1). Open/closed status lives there, not here.
+Each bug is tracked as a GitHub issue in the [`v0.2-bugfixes` milestone](https://github.com/ANNIE-ISU/LitePath/milestone/1). Open/closed status lives there, not here.
 
 | Bug | Issue |
 |-----|-------|
-| BUG-1 | [#2](https://github.com/wetstein/ANNIEraytracing/issues/2) |
-| BUG-2 | [#3](https://github.com/wetstein/ANNIEraytracing/issues/3) |
-| BUG-3 | [#4](https://github.com/wetstein/ANNIEraytracing/issues/4) |
-| BUG-4 | [#5](https://github.com/wetstein/ANNIEraytracing/issues/5) |
-| BUG-5 | [#6](https://github.com/wetstein/ANNIEraytracing/issues/6) |
-| BUG-6 | [#7](https://github.com/wetstein/ANNIEraytracing/issues/7) |
-| BUG-7 | [#8](https://github.com/wetstein/ANNIEraytracing/issues/8) |
-| BUG-8 | [#9](https://github.com/wetstein/ANNIEraytracing/issues/9) |
-| BUG-9 | [#10](https://github.com/wetstein/ANNIEraytracing/issues/10) |
-| BUG-10 | [#11](https://github.com/wetstein/ANNIEraytracing/issues/11) |
+| BUG-1 | [#2](https://github.com/ANNIE-ISU/LitePath/issues/2) |
+| BUG-2 | [#3](https://github.com/ANNIE-ISU/LitePath/issues/3) |
+| BUG-3 | [#4](https://github.com/ANNIE-ISU/LitePath/issues/4) |
+| BUG-4 | [#5](https://github.com/ANNIE-ISU/LitePath/issues/5) |
+| BUG-5 | [#6](https://github.com/ANNIE-ISU/LitePath/issues/6) |
+| BUG-6 | [#7](https://github.com/ANNIE-ISU/LitePath/issues/7) |
+| BUG-7 | [#8](https://github.com/ANNIE-ISU/LitePath/issues/8) |
+| BUG-8 | [#9](https://github.com/ANNIE-ISU/LitePath/issues/9) |
+| BUG-9 | [#10](https://github.com/ANNIE-ISU/LitePath/issues/10) |
+| BUG-10 | [#11](https://github.com/ANNIE-ISU/LitePath/issues/11) |

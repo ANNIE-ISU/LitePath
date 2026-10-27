@@ -5,10 +5,13 @@ session before touching any code.
 
 ## Project Identity
 
-- **Current name on disk:** `ANNIEraytracing` (package: `litepath`)
-- **Target name:** `LitePath` (package: `litepath`)
-- **Repo:** `wetstein/ANNIEraytracing` → target org: `ANNIE-ISU/LitePath`
-- **Rename status:** package + CLI renamed to `litepath` (branch `rename-litepath`, 2026-10-26). Clean break — no `annieray` shim. HDF5 `format` attr is now `litepath-batch`; older files say `annieray-batch` (reader does not check it). Directory, GitHub repo and clone URLs still say `ANNIEraytracing` until the org transfer.
+- **Name:** `LitePath` (package and CLI: `litepath`)
+- **Repo:** `ANNIE-ISU/LitePath` (transferred from `wetstein/ANNIEraytracing`
+  on 2026-10-27; GitHub redirects the old URL)
+- **Local folder:** still `ANNIEraytracing` on the original Mac (optional rename)
+- **Rename notes:** clean break — no `annieray` shim. HDF5 `format` attr is
+  now `litepath-batch`; older files say `annieray-batch` (reader does not check
+  it). After pulling the rename, reinstall: `pip uninstall annieray && pip install -e .`
 
 ## What This Is
 
@@ -24,16 +27,14 @@ changed before starting.
 
 1. **Fix bugs** — see `BUGS.md` for the full list. Fix critical bugs (BUG-1 to
    BUG-4) first, run the test suite after each fix.
-2. **Rename to LitePath** — package rename (`annieray` → `litepath`), directory
-   rename, `pyproject.toml`, all imports, CLI entry point, HDF5 format name,
-   docs. Update `AGENTS.md` and this file after renaming.
+2. **Rename to LitePath** — DONE (2026-10-26/27): package, CLI, imports, HDF5
+   format name, docs, GitHub repo. Only the local folder name remains (optional).
 3. **GitHub project infrastructure** — DONE for bugs (2026-10-27): labels
    (critical/medium/minor, physics, io, cli, fitting), milestone
    `v0.2-bugfixes`, issues #2–#11 = BUG-1–BUG-10 (offset by one: #1 is a
    Discussion). Reference issues in fix commits ("Fixes #N"). Still to do:
    issues for pending features; `v1.0-validated` milestone once defined.
-4. **Org transfer** — transfer `wetstein/ANNIEraytracing` → `ANNIE-ISU/LitePath`
-   after the rename is complete and pushed.
+4. **Org transfer** — DONE (2026-10-27): now `ANNIE-ISU/LitePath`.
 
 ## Key Facts for Code Changes
 
