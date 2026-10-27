@@ -6,8 +6,9 @@ Usage:
 import cadquery as cq
 import numpy as np
 from collections import defaultdict
+from pathlib import Path
 
-STEP_PATH = "/Users/wetstein/Desktop/Projects/ANNIEraytracing/F10091903_-.step"
+STEP_PATH = str(Path(__file__).resolve().parents[1] / "F10091903_-.step")
 GLASS_8_CENTER = np.array([-1234.1, 177.9, 1278.3])
 BARREL_Z_BANDS = [821, 1253, 2116, 2979]
 

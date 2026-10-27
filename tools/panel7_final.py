@@ -8,8 +8,9 @@ Searches for:
 import cadquery as cq
 import numpy as np
 from collections import defaultdict
+from pathlib import Path
 
-STEP_PATH = "/Users/wetstein/Desktop/Projects/ANNIEraytracing/F10091903_-.step"
+STEP_PATH = str(Path(__file__).resolve().parents[1] / "F10091903_-.step")
 GLASS_8 = np.array([-1234.1, 177.9, 1278.3])
 GLASS_10 = np.array([-1222.7, 178.4, 1278.4])
 
