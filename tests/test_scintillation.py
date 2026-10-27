@@ -42,6 +42,17 @@ def test_delay_all_fast():
     assert float(np.mean(delays)) == pytest.approx(2.0, rel=0.02)
 
 
+def test_delay_finite_when_uniform_draw_is_zero():
+    """A uniform draw of exactly 0.0 must not produce an infinite delay."""
+
+    class ZeroRng:
+        def random(self, n):
+            return np.zeros(n)
+
+    delays = sample_scintillation_delay(5, ZeroRng())
+    assert np.all(np.isfinite(delays))
+
+
 def test_generate_scintillation_photons():
     """Isotropic unit directions and positive, distributed emission times."""
     rng = np.random.default_rng(2)

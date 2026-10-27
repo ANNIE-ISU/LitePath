@@ -65,7 +65,9 @@ def sample_scintillation_delay(
     """
     component = rng.random(n) < fast_fraction
     tau = np.where(component, tau_fast, tau_slow)
-    return (-tau * np.log(rng.random(n))).astype(np.float32)
+    # rng.random() samples [0, 1); clip so an exact 0.0 cannot give ln(0) = -inf.
+    u = np.clip(rng.random(n), np.finfo(np.float64).tiny, None)
+    return (-tau * np.log(u)).astype(np.float32)
 
 
 def generate_scintillation_photons(
