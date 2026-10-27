@@ -33,11 +33,15 @@ annieray/
 │   ├── pmt_response.py  # PMT digital model (fast + full waveform)
 │   ├── lappd_response.py # LAPPD digitization (Taichi-accelerated)
 │   ├── lappd_model.py  # LAPPD housing geometry builder
+│   ├── benchmark.py    # WAGLE ROOT (data/MC) → annieray HDF5 conversion
 │   ├── viz_server.py  # Interactive Three.js 3D viewer
 │   └── io_h5.py       # HDF5 table I/O
-├── scripts/           # Analysis/plotting utilities (12 files)
+├── scripts/           # Analysis/plotting utilities (13 files)
+│   ├── event_display.py  # Event display (batch + WAGLE benchmark files)
+│   ├── mc_muon_file.py   # Export a MC track as a muon topology file
+│   └── check_benchmark_geometry.py  # Verify the WAGLE→world transform
 ├── tools/             # Developer/debugging utilities (23 files)
-├── docs/              # Documentation, thesis PDFs
+├── docs/              # Documentation, thesis PDFs (BENCHMARK.md = WAGLE workflow)
 ├── pmt_meshes/        # PMT body/hardware meshes (GDML + numpy cache)
 ├── extern/LApyPD/     # Git submodule (LAPPD physics model)
 ├── results/           # Batch simulation output (HDF5, parquet)
@@ -99,6 +103,18 @@ python -m annieray fit output.h5 --event 0 --show
 
 # 3D viewer (scintillation toggle + parameters in the Trace panel)
 python -m annieray viz-server --pmt-csv PMTPositions_Scan.txt --surfboard 3 --port 8080
+
+# Convert WAGLE ROOT (ANNIE data / MC) into the annieray HDF5 schema
+python -m annieray benchmark \
+    --data benchmarking_data/ANNIETree_ThroughgoingMuons.root \
+    --mc   benchmarking_data/MCTree_ThroughgoingMuons.root \
+    --output-dir results/benchmark
+
+# Check the converted file against the raytracer PMT registry
+python scripts/check_benchmark_geometry.py results/benchmark/mc.h5
+
+# Show a WAGLE MC event (use --center-phi 135: the WAGLE beam is at phi=135)
+python scripts/event_display.py results/benchmark/mc.h5 --charge --center-phi 135
 ```
 
 ### CLI Flags for Geometry Control
@@ -154,6 +170,8 @@ Both `batch` and `batch-lappd` write the same HDF5 schema (v1):
 | `component_manifest.json` | Cached STEP parser output (PMT/LAPPD positions) |
 | `corrections.csv` | LAPPD correction data |
 | `MuonStartsAndDirecs.txt` | Muon start positions/directions |
+| `benchmarking_data/ANNIETree_ThroughgoingMuons.root` | WAGLE ANNIE data (10112 events, MRD reconstruction only) |
+| `benchmarking_data/MCTree_ThroughgoingMuons.root` | WAGLE Monte Carlo (1432 events, generator truth) |
 
 ## Conventions
 
@@ -170,6 +188,23 @@ Both `batch` and `batch-lappd` write the same HDF5 schema (v1):
 
 - **θ (theta)**: polar angle from vertical. 0° = downward (−z), 90° = horizontal, 180° = upward (+z)
 - **φ (phi)**: azimuthal in XY plane. 0° = +x, 90° = +y
+
+## WAGLE / Benchmark Conventions
+
+- **ROOT (WAGLE) frame**: x horizontal transverse, **y vertical (up)**, **z along the beam**
+  (downstream), origin at the tank centre.  The WCSim *hall* frame instead has y
+  along the beam and z vertical, so the two differ by a pure y/z swap.
+- **World frame** = annieray structure frame: z vertical, tank axis along z.
+  `world = Rz(det_rotation)·(Rz(-157.5°)·Rx(+90°)·root + (0,0,1980))` — see
+  `annieray/benchmark.py` and `docs/BENCHMARK.md`.
+- The **WAGLE beam runs at φ = 135°** in the world frame (an octagon corner).
+  `annieray batch --muon-mode beam` points along **+Y (90°)**, which is 45°
+  away — a CLI labelling convention, not a frame error.
+- WAGLE `hitX/Y/Z` is the **PMT centre** (looked up by Tube ID), not a
+  per-photon position; WCSim places it 10.4 mm (8") / 23.7 mm (ETEL 10%)
+  further outward than the survey position.
+- The raytracer machinery is **not** modified by the benchmarking work; the
+  conversion is a read-only consumer of the annieray geometry.
 
 ## Current State
 
@@ -195,6 +230,7 @@ pytest                         # Run all fast tests (slow ones deselected)
 pytest -m slow                 # Run slow end-to-end tests (geometry + GPU kernel)
 pytest tests/test_tracer.py    # Tracer-specific tests
 pytest tests/test_timing_e2e.py -m slow  # End-to-end arrival-time sanity test
+pytest tests/test_batch_event_split.py  # Per-event hit attribution in batch mode
 ```
 
 Timing tests assert that final `arrival_time = create_time + path/c_in_water`,
@@ -203,6 +239,14 @@ where `create_time` already includes the muon arrival at the emission point
 
 Note: the generators store the muon start time `t0` in **seconds** (they
 internally convert via `*10**9` to ns), so pass `t0` as seconds, not ns.
+
+**Batched hits and per-event attribution.**  `run_batch` traces a whole
+batch of events in one GPU launch and then slices the detected hits back
+into events.  The hit array is *not* one row per ray when the optics path
+runs (`--max-bounces > 0` or water attenuation), so the per-event
+boundaries must be derived from `orig_indices`, not from the photon
+counts — see `tests/test_batch_event_split.py`, which asserts that the
+per-event result does not depend on the batch size.
 
 ## Git Submodules
 

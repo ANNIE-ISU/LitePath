@@ -191,6 +191,29 @@ def build_parser() -> argparse.ArgumentParser:
     batch.add_argument("--burst-position", type=str, default=None,
                        help="Burst centre: 'x y z' in mm (default: tank centre) ")
 
+    # ---- benchmark subcommand (WAGLE ROOT -> annieray HDF5) ----
+    bench = sub.add_parser(
+        "benchmark",
+        help="Convert WAGLE ROOT trees (data / MC) into the annieray "
+             "batch HDF5 schema for benchmarking",
+    )
+    bench.add_argument("--data", type=Path, default=None,
+                       help="ANNIE data ROOT file (ANNIETree_*.root)")
+    bench.add_argument("--mc", type=Path, default=None,
+                       help="Monte Carlo ROOT file (MCTree_*.root)")
+    bench.add_argument("--tree", type=str, default="Event",
+                       help="TTree name inside the ROOT files (default: Event)")
+    bench.add_argument("--pmt-csv", type=Path, default=Path("PMTPositions_Scan.txt"),
+                       help="PMT scan file used to build the detector registry")
+    bench.add_argument("--det-rotation", type=float, default=22.5,
+                       help="Global Z-rotation (deg) matching the raytracer run")
+    bench.add_argument("--output-dir", "-o", type=Path, default=Path("results/benchmark"),
+                       help="Directory for the converted HDF5 files")
+    bench.add_argument("--max-events", type=int, default=0,
+                       help="Convert at most N events per file (0 = all)")
+    bench.add_argument("--no-raw-hits", action="store_true",
+                       help="Skip the per-hit 'pmt_hits' extension table")
+
     # ---- standalone LAPPD batch subcommand ----
     lappd_batch = sub.add_parser(
         "batch-lappd",
@@ -662,6 +685,56 @@ def batch_command(args: argparse.Namespace) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Benchmark conversion command
+# ---------------------------------------------------------------------------
+
+def benchmark_command(args: argparse.Namespace) -> None:
+    """Convert WAGLE ROOT trees into the annieray batch HDF5 schema."""
+    from annieray.benchmark import (
+        RootTreeReader,
+        load_pmt_registry,
+        write_benchmark_h5,
+    )
+
+    sources: list[tuple[Path, str]] = []
+    if args.data:
+        sources.append((args.data, "data"))
+    if args.mc:
+        sources.append((args.mc, "mc"))
+    if not sources:
+        print("Error: pass --data and/or --mc")
+        return
+
+    print("Building PMT registry from", args.pmt_csv)
+    registry = load_pmt_registry(args.pmt_csv, det_rotation_deg=args.det_rotation)
+    print(f"  {len(registry)} PMTs (TubeIDs {registry.tube_id.min()}-"
+          f"{registry.tube_id.max()})")
+
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    max_events = args.max_events if args.max_events > 0 else None
+
+    for src, kind in sources:
+        reader = RootTreeReader(src, tree=args.tree, max_events=max_events)
+        n = reader.num_entries if max_events is None else min(max_events,
+                                                              reader.num_entries)
+        print(f"\nConverting {src} ({kind}): {n} events, "
+              f"truth={'yes' if reader.has_truth else 'no (MRD reconstruction)'}")
+        out_path = args.output_dir / f"{kind}.h5"
+        write_benchmark_h5(
+            out_path,
+            reader.iter_events(),
+            registry,
+            kind=kind,
+            source_file=str(src),
+            det_rotation_deg=args.det_rotation,
+            write_raw_hits=not args.no_raw_hits,
+        )
+        print(f"  Wrote {out_path}")
+
+    print("\nDone.")
+
+
+# ---------------------------------------------------------------------------
 # Standalone LAPPD batch command
 # ---------------------------------------------------------------------------
 
@@ -921,6 +994,8 @@ def main(argv: list[str] | None = None) -> None:
         batch_command(args)
     elif args.command == "batch-lappd":
         lappd_batch_command(args)
+    elif args.command == "benchmark":
+        benchmark_command(args)
     elif args.command == "fit":
         fit_command(args)
     else:

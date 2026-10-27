@@ -209,6 +209,12 @@ targeted = beams[beams["intercept_x"].notna()]
 | `batch-lappd` | yes | yes | `--lappd-response` | — | yes |
 | `batch-lappd --source spot` | yes | yes (source_type=2) | `--lappd-response` | — | yes |
 | `batch-lappd --source cherenkov` | yes | yes (source_type=0) | `--lappd-response` | — | yes |
+| `benchmark` (WAGLE ROOT) | — | yes | — | yes | yes |
+
+The `benchmark` command writes the same standard tables plus two extension
+tables (`pmt_hits` with the raw digitised hits, `benchmark_truth` with the
+track in both frames) and no `photon_hits` — the ROOT trees carry no
+photon-level truth.  See `docs/BENCHMARK.md`.
 
 ## System codes
 

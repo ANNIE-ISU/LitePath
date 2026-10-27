@@ -602,13 +602,35 @@ def run_batch(
             )
 
         # --- Slice back per event ---
-        offsets = np.empty(n_batch + 1, dtype=np.int64)
-        offsets[0] = 0
-        np.cumsum(event_counts, out=offsets[1:])
+        # ``orig_indices`` maps every detected hit back to the photon that
+        # produced it, so the per-event boundaries have to be derived from
+        # the *photon* offsets: a hit belongs to the event whose photon
+        # range contains its origin index.  Slicing the hit array directly
+        # with the photon counts only works when there is one hit row per
+        # ray (i.e. without reflections / water attenuation); with the
+        # optics path the hit array is a strict subset of the rays and
+        # every hit would land in the first event of the batch.
+        photon_offsets = np.empty(n_batch + 1, dtype=np.int64)
+        photon_offsets[0] = 0
+        np.cumsum(event_counts, out=photon_offsets[1:])
+
+        if n_total:
+            hit_event = np.searchsorted(photon_offsets, orig_indices,
+                                        side="right") - 1
+            # Group the hits by event (stable, to keep the original order
+            # within an event).
+            order = np.argsort(hit_event, kind="stable")
+            full = full[order]
+            hit_counts = np.bincount(hit_event, minlength=n_batch)
+        else:
+            hit_counts = np.zeros(n_batch, dtype=np.int64)
+
+        hit_offsets = np.zeros(n_batch + 1, dtype=np.int64)
+        np.cumsum(hit_counts, out=hit_offsets[1:])
 
         for i in range(n_batch):
             event_id = processed + i
-            sl = slice(offsets[i], offsets[i + 1])
+            sl = slice(hit_offsets[i], hit_offsets[i + 1])
             event_hits = full[sl]
             muon_pos, muon_dir = event_muon[i]
 
