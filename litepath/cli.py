@@ -138,7 +138,7 @@ def build_parser() -> argparse.ArgumentParser:
     batch.add_argument("--batch-size", type=int, default=50,
                        help="Events per GPU launch (default: 50, higher = faster)")
     batch.add_argument("--output-dir", "-o", type=Path, default=Path("results"),
-                       help="Output directory for Parquet files")
+                       help="Output directory (writes output.h5)")
     batch.add_argument("--no-record", action="store_true",
                        help="Skip writing per-event output files")
     batch.add_argument("--pmt-response", action="store_true",

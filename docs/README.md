@@ -42,10 +42,10 @@ python -m litepath batch-lappd \
     --intercept 0 -45 3.5 --lappd-response
 
 # Direction fit for a single event (grid scan, runs raytracing per hypothesis)
-python -m litepath fit output.h5 --event 0 --show
+python -m litepath fit results/output.h5 --event 0 --show
 
 # Zoomed-in fit around the true direction
-python -m litepath fit output.h5 --event 0 \
+python -m litepath fit results/output.h5 --event 0 \
     --theta-window 10 --grid-steps 21 --show
 
 # Interactive 3D viewer (scintillation toggle + parameters in Trace panel)
@@ -70,11 +70,12 @@ python -m litepath batch [flags]
 | `--step` | None | STEP CAD manifest (for LAPPD candidates) |
 | `--manifest` | None | Pre-cached component manifest JSON |
 | `--pmt-csv` | None | PMT position file (`PMTPositions_Scan.txt`) |
-| `--events` | 100 | Number of events to generate |
+| `--events` | 100 | Number of events to generate (default: line count of `--muon-file` if given, else 100) |
 | `--photons-per-cm` | 150 | Photons per cm along the muon track |
 | `--batch-size` | 50 | Events per GPU launch (higher = faster) |
 | `--muon-fixed` | None | Fixed muon topology: `"x y z t0 dx dy dz"` (7 floats) |
 | `--muon-file` | None | File with one topology per line |
+| `--muon-mode` | `isotropic` | Random muon directions when neither `--muon-fixed` nor `--muon-file` is given: `isotropic` (uniform on the sphere), `downward` (mostly −z, atmospheric), `beam` (forward along +y) |
 | `--surfboard` | 0 | PVC surfboard panels (`0`, `1`, or `3`) |
 | `--lappd-model` | `annie` | LAPPD geometry (`default` / `annie`) |
 | `--lappd-indices` | None | Comma-separated LAPPD candidate indices from STEP |
@@ -163,6 +164,7 @@ python -m litepath batch-lappd [flags]
 | `--output-dir` / `-o` | `results/` | Output directory (writes `output.h5`) |
 | `--no-record` | false | Skip writing per-event output files |
 | `--seed` | None | Random seed |
+| `--show-config` | false | Print the resolved configuration and geometry, then exit |
 
 ### `fit` — Direction fitting from batch output
 
@@ -271,9 +273,35 @@ that fit residuals can be computed for validation.
 
 ### Other commands
 
-- **`viz-server`** — Interactive 3D viewer with Three.js frontend
-- **`viz-lappd`** — Standalone LAPPD module viewer
-- **`build-detector-config`** — Writes detector registry YAML
+- **`viz-server`** — Interactive 3D viewer of the full detector (Three.js
+  frontend), served at `http://localhost:8080`.  Takes the same geometry
+  flags as `batch` (`--gdml`, `--pmt-csv`, `--no-gdml`, `--no-pmt-holders`,
+  `--no-lappd`, `--lappd-model`, `--surfboard`, `--z-offset`,
+  `--det-rotation`) plus:
+
+  | Flag | Default | Description |
+  |------|---------|-------------|
+  | `--host` | `localhost` | Host to bind |
+  | `--port` | 8080 | Port to bind |
+  | `--bottom-rot` | 45.0 | Extra Z-rotation (deg) for all PMTs, aligning the scan mesh with the structure |
+  | `--bottom-spin` | 22.5 | Per-PMT spin (deg) about the forward axis for bottom PMTs |
+
+- **`viz-lappd`** — Standalone LAPPD module viewer, served at
+  `http://localhost:8081` (`--host`, `--port` as above).
+- **`benchmark`** — Converts WAGLE ROOT trees (ANNIE data and MC) into the
+  batch HDF5 schema for comparison with LitePath output.  See
+  [`BENCHMARK.md`](BENCHMARK.md).
+- **`build-detector-config`** — Writes the detector registry YAML
+  (`-o`, default `detectors.yaml`).
+- **`run`** — Older single-shot trace of one muon track, writing per-photon
+  hits to Parquet (`-o`, default `hits.parquet`).  Superseded by `batch`.
+- **`extract-manifest`** — Extracts the component manifest JSON from the
+  STEP CAD file (`--step`, `-o`, default `component_manifest.json`).
+
+Further documentation: [`BATCH_OUTPUT.md`](BATCH_OUTPUT.md) (HDF5 schema),
+[`BENCHMARK.md`](BENCHMARK.md) (WAGLE benchmarking),
+[`geometry.md`](geometry.md) and [`GEOMETRY_PIPELINE.md`](GEOMETRY_PIPELINE.md)
+(detector geometry), [`INSTALL_LINUX.md`](INSTALL_LINUX.md) (Linux setup).
 
 ## Analysis scripts
 
@@ -552,6 +580,9 @@ path. Both are off by default (`0.0` = disabled).
 | `viz_server.py` | Interactive Three.js viewer |
 | `viz_lappd_server.py` | Standalone LAPPD module viewer |
 | `optics.py` | Optical material database, Fresnel/reflectance evaluation |
+| `materials.py` | Material ID enum, property table, PMT mesh triangle classification |
+| `bvh.py` | Median-split BVH (flat arrays) for kernel ray–triangle traversal |
+| `benchmark.py` | WAGLE ROOT reader and conversion to the batch HDF5 schema (`benchmark`) |
 | `_version.py` | Package version |
 | **Scripts** | |
 | `scripts/fit_viewer.py` | Polar/rectangular likelihood surface plot from NPZ |

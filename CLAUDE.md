@@ -28,7 +28,8 @@ changed before starting.
 1. **Fix bugs** — tracked as GitHub issues (see `BUGS.md` for the mapping).
    Priorities revised by the maintainer on 2026-10-27 (the severity headings in
    `BUGS.md` are the original review's and are out of date):
-   - **Fix now (`critical`):** BUG-3 (#4), BUG-5 (#6), BUG-7 (#8)
+   - **Fix now (`critical`):** BUG-3 (#4), BUG-5 (#6), BUG-7 (#8) — DONE
+     (2026-10-27, commits bfb616b, 75ef905, 52f0c1d; issues closed)
    - **Minor, in v0.2:** BUG-6 (#7) — current work uses the housed ANNIE LAPPD
      (system 2); BUG-1 (#2) — `run --mode uniform` is unused and may be removed;
      BUG-8, BUG-9, BUG-10
@@ -43,14 +44,18 @@ changed before starting.
    Discussion). Reference issues in fix commits ("Fixes #N"). Still to do:
    issues for pending features; `v1.0-validated` milestone once defined.
 4. **Org transfer** — DONE (2026-10-27): now `ANNIE-ISU/LitePath`.
+5. **Restore Metal GPU backend** — issue #12 (opened 2026-10-27). All
+   `ti.init` calls are hard-coded to `ti.cpu` because `trace_kernel` takes 32
+   ndarray args (> Metal's 31-buffer limit). Soon a priority; not started.
 
 ## Key Facts for Code Changes
 
 - Python 3.11+; Taichi ≥ 1.7; GPU kernels use `@ti.kernel` / `@ti.func`
 - Hit array column indices are in `tracer.py` (HI, HT, HX ... H_SOURCE)
 - HDF5 schema version is `SCHEMA_VERSION = 1` in `io_h5.py`
-- phi convention: truth stored as `arctan2` result → `[−180, 180]`; fitting
-  grid uses `[0, 360]` — BUG-5 not yet fixed
+- phi convention: truth `phi_deg` stored in `[0, 360)` to match the fit grid
+  (BUG-5, #6); files written before the fix hold `[−180, 180]` and
+  `load_observed_event()` wraps them on read
 - `DET_SYS_PMT=0`, `DET_SYS_LAPPD_DEFAULT=1`, `DET_SYS_LAPPD_ANNIE=2`
 - Speed of light: `C_MM_NS = 299.792458`, default water index `N_WATER_DEFAULT = 1.34`
 - Tests: `pytest` skips GPU tests by default (`-m 'not slow'`); run
