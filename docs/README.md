@@ -1,4 +1,9 @@
-# LitePath
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="images/LitePathLogo-dark.png">
+    <img src="images/LitePathLogo.png" alt="LitePath" width="360">
+  </picture>
+</h1>
 
 GPU-accelerated ray tracer for the ANNIE detector, implemented in Taichi.
 Traces photons through a GDML-detailed inner structure, PMTs, LAPPDs, and
