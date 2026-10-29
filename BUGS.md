@@ -8,6 +8,9 @@ Identified during code review (2026-10-26). Ordered by the review's original sev
 ## 🔴 Critical — Fix before training / fitting
 
 ### BUG-1 · `cli.py` — Non-isotropic direction sampling in `--mode uniform`
+**Resolved (2026-10-28):** the `run` command, including `--mode uniform` and
+`_generate_uniform()`, was removed. It was unused and had been crashing on a
+missing `--surfboard` option. The original report follows.  
 **Location:** `_generate_uniform()`, direction generation block  
 **Problem:** `phi = rng.uniform(-np.pi, np.pi)` then `z = sin(phi)` gives density
 ∝ 1/√(1−z²) — photon directions are biased toward the poles, not uniform on the

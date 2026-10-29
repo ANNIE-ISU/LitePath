@@ -8,11 +8,9 @@ from pathlib import Path
 
 import numpy as np
 
-from litepath.geometry.build import build_geometry, Geometry
-from litepath.engine.trace import trace_rays
-from litepath.simulate import trace_cherenkov
+from litepath.geometry.build import build_geometry
 from litepath.optics import WaterAttenuation, load_optics_config
-from litepath.output import write_hits, write_detector_config
+from litepath.output import write_detector_config
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -21,43 +19,6 @@ def build_parser() -> argparse.ArgumentParser:
         description="GPU-accelerated ray tracer for ANNIE detector",
     )
     sub = p.add_subparsers(dest="command", required=True)
-
-    run = sub.add_parser("run", help="Run ray tracing")
-    run.add_argument("--gdml", type=Path, default=Path("PHASE2_INNER_STRUCTURE_closed.gdml"),
-                     help="Path to GDML geometry mesh (default: PHASE2_INNER_STRUCTURE_closed.gdml)")
-    run.add_argument("--step", type=Path, default=None, help="Path to STEP CAD file")
-    run.add_argument("--manifest", type=Path, default=None, help="Path to cached component manifest JSON")
-    run.add_argument("--pmt-csv", type=Path, default=None, help="Path to PMT scan file or CSV (default: PMTPositions_Scan.txt near GDML)")
-    run.add_argument("--photons-per-cm", type=int, default=150, help="Photons per cm along the 4 m muon track (total ≈ 401 × this value)")
-    run.add_argument("--output", "-o", type=Path, default=Path("hits.parquet"), help="Output Parquet path")
-    run.add_argument("--seed", type=int, default=None, help="Random seed")
-    run.add_argument("--mode", choices=["uniform", "cherenkov"], default="uniform",
-                     help="Photon generation mode")
-    run.add_argument("--lappd-indices", type=str, default=None,
-                     help="Comma-separated LAPPD candidate indices (default: use 3 from manifest)")
-    run.add_argument("--no-lappd", action="store_true", help="Skip LAPPD rectangles")
-    run.add_argument("--no-gdml", action="store_true",
-                     help="Skip inner structure GDML mesh (tank + PMTs only)")
-    run.add_argument("--no-pmt-holders", action="store_true",
-                     help="Skip PMT body and hardware holder meshes (PMT positions still loaded)")
-    run.add_argument("--z-offset", type=float, default=0.0,
-                     help="Vertical offset (mm) — use when PMT CSV and GDML use different Z origins")
-    run.add_argument("--lappd-model", choices=["default", "annie"], default="annie",
-                     help="LAPPD geometry model (default: bare rectangle; annie: housed LAPPD)")
-    run.add_argument("--detector-config", type=Path, default=None,
-                     help="Path to detector registry YAML (auto-built if absent)")
-    run.add_argument("--wavelength", type=float, default=350.0,
-                     help="Photon wavelength in nm (default: 350)")
-    run.add_argument("--det-rotation", type=float, default=22.5,
-                     help="Global Z-rotation (deg) so +Y aligns with octagon corner (default: 22.5)")
-    run.add_argument("--max-bounces", type=int, default=0,
-                     help="Number of surface reflections per photon (0 = off, default: 0)")
-    run.add_argument("--optics-config", type=Path, default=None,
-                     help="YAML file with per-material optical properties (default: built-in)")
-    run.add_argument("--water-absorption-mm", type=float, default=0.0,
-                     help="Water absorption length in mm (0 = off, default: 0)")
-    run.add_argument("--water-scattering-mm", type=float, default=0.0,
-                     help="Rayleigh scattering length in mm (0 = off, default: 0)")
 
     cherenkov = sub.add_parser("extract-manifest", help="Extract component manifest from STEP")
     cherenkov.add_argument("--step", required=True, type=Path, help="Path to STEP CAD file")
@@ -321,173 +282,6 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Force polar projection (default: rectangular for zoomed-in, polar for full-sky)")
 
     return p
-
-
-def _generate_uniform(geometry: Geometry, n: int, rng: np.random.Generator) -> tuple:
-    """Generate random photons uniformly inside the tank volume.
-
-    Positions are rejection-sampled inside a cylinder 90 % of the tank
-    radius.  Directions are isotropic (uniform on the sphere).
-
-    This is useful for flat efficiency scans — each photon has equal
-    probability of hitting any detector regardless of emission model.
-
-    To add a new emission model, create a function with the same
-    signature (geometry, n, rng) → (origins, directions) and wire
-    it into run_command() as a new --mode branch.
-
-    Returns (origins, directions) arrays, each (N, 3) float32.
-    """
-    r_tank = geometry.tank_radius * 0.9
-    z_min = geometry.tank_z_min + 100.0
-    z_max = geometry.tank_z_max - 100.0
-
-    origins = np.zeros((n, 3), dtype=np.float32)
-    directions = np.zeros((n, 3), dtype=np.float32)
-
-    # Rejection sampling for uniform positions in cylinder
-    batch = int(n * 1.3) + 1
-    accepted = 0
-    while accepted < n:
-        xs = rng.uniform(-r_tank, r_tank, batch)
-        ys = rng.uniform(-r_tank, r_tank, batch)
-        zs = rng.uniform(z_min, z_max, batch)
-        rs2 = xs * xs + ys * ys
-        mask = rs2 <= r_tank * r_tank
-        n_mask = mask.sum()
-        to_take = min(n_mask, n - accepted)
-        if to_take == 0:
-            continue
-        origins[accepted:accepted + to_take, 0] = xs[mask][:to_take]
-        origins[accepted:accepted + to_take, 1] = ys[mask][:to_take]
-        origins[accepted:accepted + to_take, 2] = zs[mask][:to_take]
-        accepted += to_take
-
-    theta = rng.uniform(0, 2 * np.pi, n)
-    phi = rng.uniform(-np.pi, np.pi, n)
-    directions[:, 0] = np.cos(theta) * np.cos(phi)
-    directions[:, 1] = np.sin(theta) * np.cos(phi)
-    directions[:, 2] = np.sin(phi)
-
-    return origins, directions
-
-#Call generate_cherenkov for each muon, make a seperate function for multiple muon generation
-def _generate_cherenkov(
-    geometry: Geometry,
-    photons_per_cm: int,
-    rng: np.random.Generator,
-    muon_pos: tuple = (0.0, 0.0, 2000.0), #Tank coordinate system (cartesian based on the cylinder) where z is height
-    muon_dir: tuple = (0.0, 0.0, -1.0),
-    cherenkov_angle: float = 0.73,
-) -> tuple:
-    """Generate Cherenkov cone from a muon track (delegates to cherenkov module).
-
-    This is a thin wrapper that calls generate_cherenkov_photons() in
-    cherenkov.py.  The student modifying the emission model should work
-    in cherenkov.py directly; this function just passes through.
-
-    Returns (origins, directions) arrays, each (N, 3) float32.
-    """
-    from litepath.cherenkov import generate_cherenkov_photons
-
-    origins, directions, create_times = generate_cherenkov_photons(
-        muon_pos, muon_dir, photons_per_cm,
-        cherenkov_angle=cherenkov_angle, rng=rng,
-    )
-    return origins, directions
-
-
-def run_command(args: argparse.Namespace) -> None:
-    # Validate args
-    if args.pmt_csv and not args.pmt_csv.exists():
-        print(f"Error: PMT CSV not found: {args.pmt_csv}")
-        return
-    if not args.pmt_csv and not args.step and not args.manifest:
-        print("Warning: no PMT data source provided (--pmt-csv, --step, or --manifest)")
-
-    # Handle lappd-indices override
-    lappd_indices = None
-    if args.lappd_indices:
-        import json
-        lappd_indices = [int(x) for x in args.lappd_indices.split(",")]
-
-    print(f"Loading geometry from {args.gdml}...")
-    geom = build_geometry(args.gdml, step_path=args.step, manifest_path=args.manifest,
-                          pmt_csv_path=args.pmt_csv, lappd_indices=lappd_indices,
-                          no_lappd=args.no_lappd, no_gdml=args.no_gdml, no_pmt_holders=args.no_pmt_holders,
-                          z_offset=args.z_offset, lappd_model=args.lappd_model,
-                          det_rotation_deg=args.det_rotation, n_surfboards=args.surfboard)
-
-    print(f"  Mesh: {geom.mesh_vertices.shape[0]} vertices, {geom.mesh_triangles.shape[0]} triangles")
-    print(f"  PMTs: {geom.pmt_centers.shape[0]} (radii: {set(f'{r:.1f}' for r in geom.pmt_radii)})")
-    print(f"  LAPPDs: {geom.lappd_data.shape[0]}")
-    if geom.lappd_housing_data.shape[0] > 0:
-        print(f"  ANNIE LAPPD housing: 1 at centre {geom.lappd_housing_data[0, :3]}")
-    if geom.detectors:
-        print(f"  Detector registry: {len(geom.detectors)} entries")
-    print(f"  Tank: R={geom.tank_radius:.0f} mm, Z=[{geom.tank_z_min:.0f}, {geom.tank_z_max:.0f}]")
-
-    # Write detector config if requested
-    if args.detector_config:
-        print(f"\nWriting detector registry to {args.detector_config}...")
-        write_detector_config(geom.detectors, args.detector_config)
-
-    rng = np.random.default_rng(args.seed)
-
-    water_cfg = WaterAttenuation(
-        absorption_length_mm=args.water_absorption_mm,
-        scattering_length_mm=args.water_scattering_mm,
-    )
-    needs_optics = args.max_bounces > 0 or water_cfg.is_active
-    if needs_optics and args.mode == "cherenkov":
-        what = []
-        if args.max_bounces > 0:
-            what.append(f"max {args.max_bounces} reflections")
-        if water_cfg.is_active:
-            parts = []
-            if water_cfg.absorption_length_mm > 0:
-                parts.append(f"absorption={water_cfg.absorption_length_mm:.0f} mm")
-            if water_cfg.scattering_length_mm > 0:
-                parts.append(f"scattering={water_cfg.scattering_length_mm:.0f} mm")
-            what.append("water " + ", ".join(parts))
-        print(f"\nMulti-bounce optics enabled: {'; '.join(what)} per photon")
-
-    total_photons = args.photons_per_cm * 401
-    print(f"\nGenerating {args.photons_per_cm} photons/cm × 401 steps = {total_photons} total ({args.mode} mode)...")
-    t0 = time.time()
-    if args.mode == "uniform":
-        origins, directions = _generate_uniform(geom, total_photons, rng)
-        hits = trace_rays(origins, directions, geom)
-    else:
-        optics_cfg = load_optics_config(args.optics_config) if needs_optics else None
-        hits = trace_cherenkov(
-            (0.0, 0.0, 2000.0), (0.0, 0.0, -1.0),
-            args.photons_per_cm, geom, rng=rng,
-            wavelength_nm=args.wavelength,
-            max_bounces=args.max_bounces,
-            optics_config=optics_cfg,
-            water_config=water_cfg if water_cfg.is_active else None,
-        )
-    t_gen = time.time() - t0
-    print(f"  Generated/traced in {t_gen:.2f}s")
-
-    n_hit = int(hits[:, 0].sum())
-    print(f"\nResults: {n_hit}/{total_photons} hit ({n_hit / total_photons * 100:.1f}%)")
-
-    from litepath.hits import CID_PMT, CID_LAPPD, CID_INNER_STRUCTURE, CID_TANK_WALL
-    cid_names = {CID_INNER_STRUCTURE: "structure", CID_PMT: "PMT", CID_LAPPD: "LAPPD", CID_TANK_WALL: "tank"}
-    for cid in range(1, 5):
-        count = int((hits[:, 8] == cid).sum())
-        if count > 0:
-            print(f"  {cid_names[cid]}: {count}")
-
-    n_det = int((hits[:, 9] >= 0).sum())
-    if n_det > 0:
-        print(f"  Detector hits: {n_det}")
-
-    print(f"\nWriting {args.output}...")
-    write_hits(hits, args.output)
-    print("Done.")
 
 
 def build_detector_config_command(args: argparse.Namespace) -> None:
@@ -974,9 +768,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if args.command == "run":
-        run_command(args)
-    elif args.command == "extract-manifest":
+    if args.command == "extract-manifest":
         extract_manifest_command(args)
     elif args.command == "build-detector-config":
         build_detector_config_command(args)

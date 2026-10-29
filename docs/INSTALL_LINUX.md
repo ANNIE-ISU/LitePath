@@ -127,14 +127,14 @@ the package will still import — cadquery is only used when `--step` or
 On CPU (any machine):
 
 ```bash
-python -m litepath batch --events 10 --photons-per-cm 50
+python -m litepath batch --pmt-csv PMTPositions_Scan.txt --surfboard 3 --events 10 --photons-per-cm 50
 ```
 
 Expected output:
 
 ```
-Wrote results/photon_hits.parquet (NNNN photon rows)
-Wrote results/muon_truth.parquet (10 muon truth rows)
+Wrote results/output.h5 (NNNN photon rows)
+Wrote results/output.h5 (10 muon truth rows)
 Done.
 ```
 

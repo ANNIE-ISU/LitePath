@@ -50,7 +50,7 @@ litepath/
 ├── docs/              # Documentation, thesis PDFs (BENCHMARK.md = WAGLE workflow)
 ├── pmt_meshes/        # PMT body/hardware meshes (GDML + numpy cache)
 ├── extern/LApyPD/     # Git submodule (LAPPD physics model)
-├── results/           # Batch simulation output (HDF5, parquet)
+├── results/           # Batch simulation output (HDF5)
 └── PHASE2_INNER_STRUCTURE_closed.gdml  # Primary detector geometry
 ```
 

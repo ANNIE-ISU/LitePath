@@ -31,7 +31,8 @@ changed before starting.
    - **Fix now (`critical`):** BUG-3 (#4), BUG-5 (#6), BUG-7 (#8) — DONE
      (2026-10-27, commits bfb616b, 75ef905, 52f0c1d; issues closed)
    - **Minor, in v0.2:** BUG-6 (#7) — current work uses the housed ANNIE LAPPD
-     (system 2); BUG-1 (#2) — `run --mode uniform` is unused and may be removed;
+     (system 2); BUG-1 (#2) — resolved by removing the `run` command (2026-10-28, branch
+     `refactor/phase0-split-tracer`);
      BUG-8, BUG-9, BUG-10
    - **Backlog (no milestone):** BUG-4 (#5) — tracks are metre-scale for now;
      BUG-2 (#3) — reclassified as an enhancement (future wavelength feature)

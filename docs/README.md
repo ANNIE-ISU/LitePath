@@ -298,8 +298,6 @@ that fit residuals can be computed for validation.
   [`BENCHMARK.md`](BENCHMARK.md).
 - **`build-detector-config`** — Writes the detector registry YAML
   (`-o`, default `detectors.yaml`).
-- **`run`** — Older single-shot trace of one muon track, writing per-photon
-  hits to Parquet (`-o`, default `hits.parquet`).  Superseded by `batch`.
 - **`extract-manifest`** — Extracts the component manifest JSON from the
   STEP CAD file (`--step`, `-o`, default `component_manifest.json`).
 
@@ -464,7 +462,7 @@ score is `LL = LL_charge + α · LL_time`.
                 hits ndarray            expand with arrival_time
                      |                  + wavelength + bounce
                      v
-               write_hits() / BatchAccumulator
+               BatchAccumulator
                      |
                      v
                output.h5

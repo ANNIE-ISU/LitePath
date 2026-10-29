@@ -46,7 +46,7 @@ All tables are flat, resizable datasets of numpy structured arrays
 | `lappd_readouts` | One per (event, LAPPD) with `--lappd-response` | `batch`, `batch-lappd` |
 | `pmt_responses` | One per hit PMT with `--pmt-response` | `batch` only |
 | `detectors` | Detector registry | both (via `write_detectors`) |
-| `hits` | Full single-shot trace (interactive tools) | emitted by the tracer, not batch |
+| `hits` | Full single-shot trace | legacy: written only by the removed `run` command; still readable |
 
 ### `photon_hits`
 
