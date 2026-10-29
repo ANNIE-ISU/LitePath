@@ -60,6 +60,11 @@ changed before starting.
 - Speed of light: `C_MM_NS = 299.792458`, default water index `N_WATER_DEFAULT = 1.34`
 - Tests: `pytest` skips GPU tests by default (`-m 'not slow'`); run
   `pytest -m slow` on a machine with a GPU to include them
+- Reference outputs: `tests/test_reference_outputs.py` re-runs fixed-seed CLI
+  cases (`tests/reference_cases.py`) and compares with `tests/reference/*.npz`.
+  Any refactor must keep them passing (`pytest -m "slow or not slow"`).
+  Regenerate with `python tools/make_reference_outputs.py` only for an
+  intended output change, and say so in the commit
 
 ## Running the Project
 
