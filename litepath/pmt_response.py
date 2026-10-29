@@ -18,8 +18,8 @@ from typing import Optional
 
 import numpy as np
 
-from litepath.tracer import HDI, HDS, HLU, HLV, H_ARRIVAL, H_WAVELEN
-from litepath.tracer import DET_SYS_PMT
+from litepath.hits import HDI, HDS, HLU, HLV, H_ARRIVAL, H_WAVELEN
+from litepath.hits import DET_SYS_PMT
 
 
 # ---------------------------------------------------------------------------

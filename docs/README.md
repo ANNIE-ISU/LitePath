@@ -565,7 +565,13 @@ path. Both are off by default (`0.0` = disabled).
 | File | Role |
 |------|------|
 | `cli.py` | CLI parser, all subcommands (`batch`, `batch-lappd`, `fit`, `viz-server`, etc.) |
-| `tracer.py` | Geometry dataclass, `build_geometry()`, Taichi trace kernel, `trace_muon_light()`/`trace_cherenkov()` |
+| `geometry/build.py` | `Geometry` dataclass, `build_geometry()`, surfboards and housings, `build_single_lappd_geometry()` |
+| `engine/kernel.py` | Taichi ray-intersection functions and `trace_kernel` |
+| `engine/trace.py` | `trace_rays()`, `trace_with_optics()` (multi-bounce, water attenuation) |
+| `sources/track.py` | Muon track length through the tank and LAPPD housings |
+| `simulate.py` | `trace_muon_light()` / `trace_cherenkov()`: generate muon light and trace it |
+| `hits.py` | Hit-array column indices, component IDs, detector-system and photon-source codes |
+| `tracer.py` | Compatibility module: re-exports the names above for older scripts |
 | `batch.py` | Batch-mode event loop, `BatchAccumulator` for HDF5 output |
 | `lappd_batch.py` | Standalone-LAPPD batch runner (`batch-lappd`), `sample_source_state()` |
 | `cherenkov.py` | Vectorised Cherenkov / isotropic photon generator |
@@ -584,7 +590,7 @@ path. Both are off by default (`0.0` = disabled).
 | `step_parser.py` | STEP CAD parser (component manifest) |
 | `viz_server.py` | Interactive Three.js viewer |
 | `viz_lappd_server.py` | Standalone LAPPD module viewer |
-| `optics.py` | Optical material database, Fresnel/reflectance evaluation |
+| `optics.py` | Optical material database, Fresnel/reflectance evaluation, `C_MM_NS`, `N_WATER_DEFAULT` |
 | `materials.py` | Material ID enum, property table, PMT mesh triangle classification |
 | `bvh.py` | Median-split BVH (flat arrays) for kernel ray–triangle traversal |
 | `benchmark.py` | WAGLE ROOT reader and conversion to the batch HDF5 schema (`benchmark`) |

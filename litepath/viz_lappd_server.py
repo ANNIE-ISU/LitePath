@@ -16,12 +16,12 @@ from urllib.parse import urlparse, parse_qs
 
 import numpy as np
 
-from litepath.tracer import (
-    build_single_lappd_geometry, trace_rays,
-    compute_track_length,
-    CID_LAPPD, CID_PMT, CID_INNER_STRUCTURE,
-    HI, HCID, HT, HX, HY, HZ, HNX, HNY, HNZ,
+from litepath.hits import (
+    CID_LAPPD, CID_PMT, CID_INNER_STRUCTURE, HI, HCID, HT, HX, HY, HZ, HNX, HNY, HNZ,
 )
+from litepath.geometry.build import build_single_lappd_geometry
+from litepath.engine.trace import trace_rays
+from litepath.sources.track import compute_track_length
 from litepath.lappd_model import build_housing, housing_to_arrays
 from litepath.cherenkov import generate_cherenkov_photons
 from litepath.lappd_response import process_hit_dicts, LAPPDResponseConfig

@@ -19,7 +19,7 @@ import taichi as ti
 
 from litepath.batch import BatchConfig, run_batch
 from litepath.io_h5 import BatchReader
-from litepath.tracer import build_geometry
+from litepath.geometry.build import build_geometry
 
 ti.init(arch=ti.cpu, default_fp=ti.f32)
 

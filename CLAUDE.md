@@ -51,7 +51,9 @@ changed before starting.
 ## Key Facts for Code Changes
 
 - Python 3.11+; Taichi ≥ 1.7; GPU kernels use `@ti.kernel` / `@ti.func`
-- Hit array column indices are in `tracer.py` (HI, HT, HX ... H_SOURCE)
+- Hit array column indices are in `hits.py` (HI, HT, HX ... H_SOURCE). `tracer.py`
+  is now only a compatibility module; code lives in `geometry/`, `engine/`,
+  `sources/` and `simulate.py` (see `docs/README.md` code map)
 - HDF5 schema version is `SCHEMA_VERSION = 1` in `io_h5.py`
 - phi convention: truth `phi_deg` stored in `[0, 360)` to match the fit grid
   (BUG-5, #6); files written before the fix hold `[−180, 180]` and

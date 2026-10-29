@@ -122,7 +122,7 @@ DET_ROTATION_DEG = 22.5
 #: below the tank centre (WCLength = 3960 mm).
 HALF_WC_LENGTH = 1980.0
 
-#: Water-tank geometry (mm) — identical to ``litepath.tracer.build_geometry``.
+#: Water-tank geometry (mm) — identical to ``litepath.geometry.build.build_geometry``.
 TANK_RADIUS_MM = 1524.0
 TANK_Z_MIN_MM = 19.0
 TANK_Z_MAX_MM = 3861.0
@@ -976,7 +976,7 @@ def write_benchmark_h5(
             "det_rotation_deg": det_rotation_deg,
             "frame": "world (litepath structure frame, mm)",
         })
-        # Tank geometry — matches litepath.tracer.build_geometry so that the
+        # Tank geometry — matches litepath.geometry.build.build_geometry so that the
         # standard event display / analysis scripts can use these files.
         f.attrs["tank_radius_mm"] = TANK_RADIUS_MM
         f.attrs["tank_z_min_mm"] = TANK_Z_MIN_MM

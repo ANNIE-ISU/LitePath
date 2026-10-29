@@ -24,8 +24,9 @@ import numpy as np
 
 from litepath.pmt_loader import rotate_z
 from litepath.pmt_mesh import build_viz_caches
-from litepath.tracer import build_geometry, trace_muon_light, reload_lappd_corrections
-from litepath.tracer import HI, HCID, HX, HZ, H_SOURCE, SOURCE_CKV, SOURCE_SCI
+from litepath.geometry.build import build_geometry, reload_lappd_corrections
+from litepath.simulate import trace_muon_light
+from litepath.hits import HI, HCID, HX, HZ, H_SOURCE, SOURCE_CKV, SOURCE_SCI
 
 geometry = None
 

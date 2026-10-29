@@ -10,7 +10,7 @@ How the inner structure mesh and PMT positions are loaded, transformed, and asse
 
 | # | What | Where |
 |---|------|-------|
-| 1 | `build_geometry()` calls `gdml_parser.parse_gdml(gdml_path)` | `tracer.py:115` |
+| 1 | `build_geometry()` calls `gdml_parser.parse_gdml(gdml_path)` | `geometry/build.py` |
 | 2 | `parse_gdml` uses `lxml` to find all `<position>` elements → vertex XYZ (float32 N×3) | `gdml_parser.py:39-43` |
 | 3 | Finds all `<triangular>` elements → triangle index triplets (int32 M×3) | `gdml_parser.py:48-51` |
 | 4 | Returns `(vertices, triangles)` | `gdml_parser.py:53` |
@@ -141,13 +141,13 @@ Forward offsets (`pmt_loader.py:123-129`):
 
 | # | What | Where |
 |---|------|-------|
-| 19 | Parse GDML → `(vertices, triangles)` | `tracer.py:115` |
-| 20 | Load PMT CSV → `load_pmts()` → centres, radii, directions | `tracer.py:121-126` |
-| 21 | Load STEP manifest → LAPPD positions and tank bounds | `tracer.py:131-161` |
-| 22 | Build default LAPPD rectangles or ANNIE housing model | `tracer.py:163-212` |
-| 23 | Return `Geometry` dataclass | `tracer.py:~200+` |
+| 19 | Parse GDML → `(vertices, triangles)` | `geometry/build.py` |
+| 20 | Load PMT CSV → `load_pmts()` → centres, radii, directions | `geometry/build.py` |
+| 21 | Load STEP manifest → LAPPD positions and tank bounds | `geometry/build.py` |
+| 22 | Build default LAPPD rectangles or ANNIE housing model | `geometry/build.py` |
+| 23 | Return `Geometry` dataclass | `geometry/build.py` |
 
-`Geometry` dataclass fields (`tracer.py:54-91`):
+`Geometry` dataclass fields (`geometry/build.py`):
 
 - `mesh_vertices` (float32 N×3) — GDML triangle vertex positions
 - `mesh_triangles` (int32 M×3) — triangle index list
@@ -177,7 +177,7 @@ The interactive viewer applies `Rx(-90°)` to both mesh and PMTs when sending da
 ## Reference: Complete Call Chain
 
 ```
-tracer.py:build_geometry()
+geometry/build.py:build_geometry()
   ├── gdml_parser.py:parse_gdml()          →  (vertices, triangles)
   └── pmt_loader.py:load_pmts()
         ├── _scan_to_tank()                  →  WCBarrel frame (mm)

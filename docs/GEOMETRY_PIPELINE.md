@@ -114,7 +114,7 @@ Because STEP parsing is slow (10-60 s), the manifest can be cached to JSON with 
 
 ---
 
-## Assembly: `build_geometry()` in `tracer.py`
+## Assembly: `build_geometry()` in `geometry/build.py`
 
 The `Geometry` dataclass holds everything the raytracer needs:
 

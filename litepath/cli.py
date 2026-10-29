@@ -8,12 +8,9 @@ from pathlib import Path
 
 import numpy as np
 
-from litepath.tracer import (
-    build_geometry,
-    trace_rays,
-    trace_cherenkov,
-    Geometry,
-)
+from litepath.geometry.build import build_geometry, Geometry
+from litepath.engine.trace import trace_rays
+from litepath.simulate import trace_cherenkov
 from litepath.optics import WaterAttenuation, load_optics_config
 from litepath.output import write_hits, write_detector_config
 
@@ -477,7 +474,7 @@ def run_command(args: argparse.Namespace) -> None:
     n_hit = int(hits[:, 0].sum())
     print(f"\nResults: {n_hit}/{total_photons} hit ({n_hit / total_photons * 100:.1f}%)")
 
-    from litepath.tracer import CID_PMT, CID_LAPPD, CID_INNER_STRUCTURE, CID_TANK_WALL
+    from litepath.hits import CID_PMT, CID_LAPPD, CID_INNER_STRUCTURE, CID_TANK_WALL
     cid_names = {CID_INNER_STRUCTURE: "structure", CID_PMT: "PMT", CID_LAPPD: "LAPPD", CID_TANK_WALL: "tank"}
     for cid in range(1, 5):
         count = int((hits[:, 8] == cid).sum())
@@ -740,7 +737,7 @@ def benchmark_command(args: argparse.Namespace) -> None:
 
 def lappd_batch_command(args: argparse.Namespace) -> None:
     from litepath.lappd_batch import LAPPDBatchConfig, run_lappd_batch
-    from litepath.tracer import build_single_lappd_geometry
+    from litepath.geometry.build import build_single_lappd_geometry
 
     # --events default: grid product, muon-file line count, or 100
     n_events = args.events

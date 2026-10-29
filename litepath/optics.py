@@ -2,7 +2,7 @@
 
 Provides per-material config loading, Fresnel equations, diffuse/specular
 reflection models, and the hit-evaluation dispatcher used by
-:func:`trace_with_optics` in *tracer.py*.
+:func:`trace_with_optics` in *engine/trace.py*.
 """
 
 from __future__ import annotations
@@ -14,6 +14,13 @@ from typing import Optional
 import numpy as np
 
 from litepath.materials import MaterialID
+
+# Speed of light in vacuum (mm/ns)
+C_MM_NS = 299.792458
+
+# Default refractive index of water at ~350 nm
+# Used to convert photon path length to arrival time: t_arrival = t / (C/n)
+N_WATER_DEFAULT = 1.34
 
 # ---------------------------------------------------------------------------
 # Material optical config

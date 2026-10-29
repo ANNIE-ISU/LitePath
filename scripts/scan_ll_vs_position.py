@@ -20,7 +20,7 @@ from pathlib import Path
 
 import numpy as np
 
-from litepath.tracer import build_geometry
+from litepath.geometry.build import build_geometry
 from litepath.fitting import load_observed_event, grid_scan_direction
 
 

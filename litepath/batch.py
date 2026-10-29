@@ -24,15 +24,16 @@ from litepath.io_h5 import (
     SOURCE_TRACK, SOURCE_LIGHT_BURST, SOURCE_SPOT,
     append_table,
 )
-from litepath.tracer import (
-    HI, HT, HDI, HDS, HLU, HLV, H_ARRIVAL, H_WAVELEN, H_BOUNCE, H_SOURCE,
-    DET_SYS_PMT, DET_SYS_LAPPD_ANNIE, DET_SYS_NONE,
-    N_HIT_COLS, N_EXPANDED_COLS,
-    C_MM_NS, N_WATER_DEFAULT,
-    SOURCE_CKV, SOURCE_SCI,
-    trace_rays, trace_cherenkov, trace_muon_light, compute_track_length, Geometry,
+from litepath.hits import (
+    HI, HT, HDI, HDS, HLU, HLV, H_ARRIVAL, H_WAVELEN, H_BOUNCE, H_SOURCE, DET_SYS_PMT,
+    DET_SYS_LAPPD_ANNIE, DET_SYS_NONE, N_HIT_COLS, N_EXPANDED_COLS, SOURCE_CKV,
+    SOURCE_SCI,
 )
-from litepath.optics import WaterAttenuation
+from litepath.optics import C_MM_NS, N_WATER_DEFAULT, WaterAttenuation
+from litepath.geometry.build import Geometry
+from litepath.engine.trace import trace_rays
+from litepath.sources.track import compute_track_length
+from litepath.simulate import trace_cherenkov, trace_muon_light
 
 
 # ---------------------------------------------------------------------------
@@ -570,7 +571,7 @@ def run_batch(
             scattering_length_mm=config.water_scattering_mm,
         )
         if config.max_bounces > 0 or water_cfg.is_active:
-            from litepath.tracer import trace_with_optics
+            from litepath.engine.trace import trace_with_optics
             from litepath.optics import load_optics_config
             cfg = optics_config if optics_config is not None else load_optics_config(None)
             hits, bounce_counts, orig_indices = trace_with_optics(

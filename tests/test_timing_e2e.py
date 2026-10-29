@@ -12,12 +12,9 @@ import pytest
 
 import taichi as ti
 
-from litepath.tracer import (
-    H_ARRIVAL, H_SOURCE,
-    SOURCE_SCI,
-    build_geometry,
-    trace_muon_light,
-)
+from litepath.hits import H_ARRIVAL, H_SOURCE, SOURCE_SCI
+from litepath.geometry.build import build_geometry
+from litepath.simulate import trace_muon_light
 
 pytestmark = pytest.mark.slow
 

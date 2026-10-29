@@ -13,7 +13,7 @@ import taichi as ti
 
 from litepath.batch import BatchAccumulator, BatchConfig, run_batch
 from litepath.lappd_batch import LAPPDBatchConfig, run_lappd_batch
-from litepath.tracer import build_geometry, build_single_lappd_geometry
+from litepath.geometry.build import build_geometry, build_single_lappd_geometry
 
 ti.init(arch=ti.cpu, default_fp=ti.f32)
 

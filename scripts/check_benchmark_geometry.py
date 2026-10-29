@@ -67,7 +67,7 @@ DATA_MAG_TOL_MM = 0.6
 DATA_MEAN_TOL_MM = 1.0
 #: Azimuthal agreement between the WAGLE PMT point and the raytracer centre.
 AZIMUTH_TOL_DEG = 0.5
-#: Water tank (mm) — see litepath.tracer.build_geometry.
+#: Water tank (mm) — see litepath.geometry.build.build_geometry.
 TANK_R = 1524.0
 TANK_Z_MIN, TANK_Z_MAX = 19.0, 3861.0
 

@@ -9,14 +9,9 @@ from pathlib import Path
 
 import numpy as np
 
-from litepath.tracer import (
-    Geometry,
-    trace_cherenkov,
-    DET_SYS_PMT,
-    HDI,
-    HDS,
-    H_ARRIVAL,
-)
+from litepath.hits import DET_SYS_PMT, HDI, HDS, H_ARRIVAL
+from litepath.geometry.build import Geometry
+from litepath.simulate import trace_cherenkov
 from litepath.io_h5 import load_table
 from litepath.likelihood import (
     poisson_charge_ll,

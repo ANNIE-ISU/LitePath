@@ -19,7 +19,13 @@ Key physics:
 litepath/
 ├── litepath/          # Main package (28 Python files)
 │   ├── cli.py         # CLI entry point (batch, fit, viz-server, etc.)
-│   ├── tracer.py      # Core: Geometry dataclass, Taichi GPU trace_kernel
+│   ├── geometry/build.py  # Geometry dataclass, build_geometry(), surfboards
+│   ├── engine/kernel.py   # Taichi intersection functions, trace_kernel
+│   ├── engine/trace.py    # trace_rays(), trace_with_optics()
+│   ├── sources/track.py   # Muon track lengths
+│   ├── simulate.py    # trace_muon_light() / trace_cherenkov()
+│   ├── hits.py        # Hit-array columns and detector/source codes
+│   ├── tracer.py      # Compatibility re-exports of the above (old imports)
 │   ├── batch.py       # Batch-mode event loop, HDF5 output
 │   ├── cherenkov.py   # Cherenkov cone / isotropic photon generator
 │   ├── fitting.py     # Direction grid scan, observed event loader
@@ -228,7 +234,7 @@ Recent work focuses on validation, analysis scripts, and fitting accuracy.
 ```bash
 pytest                         # Run all fast tests (slow ones deselected)
 pytest -m slow                 # Run slow end-to-end tests (geometry + GPU kernel)
-pytest tests/test_tracer.py    # Tracer-specific tests
+pytest tests/test_reference_outputs.py -m "slow or not slow"  # End-to-end output vs stored reference
 pytest tests/test_timing_e2e.py -m slow  # End-to-end arrival-time sanity test
 pytest tests/test_batch_event_split.py  # Per-event hit attribution in batch mode
 ```
@@ -258,7 +264,7 @@ git submodule update --init --recursive
 
 - The project is already mature — ask what the user wants to work on rather than starting from scratch
 - GDML parsing is in `gdml_parser.py`, PMT loading in `pmt_loader.py`
-- The Taichi GPU kernel is in `tracer.py` (`trace_kernel`)
+- The Taichi kernel is in `engine/kernel.py` (`trace_kernel`); `tracer.py` only re-exports
 - Batch output goes to `results/` as HDF5 files
 - Use `@` to reference files when discussing specific code
 - PDFs in `docs/` can be read with `pymupdf` (already installed)

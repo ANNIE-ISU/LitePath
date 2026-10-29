@@ -22,7 +22,7 @@ from litepath.io_h5 import (
     load_table,
 )
 from litepath.lappd_batch import LAPPDBatchConfig, run_lappd_batch
-from litepath.tracer import build_single_lappd_geometry
+from litepath.geometry.build import build_single_lappd_geometry
 
 # Same init as the CLI entry points.
 ti.init(arch=ti.cpu, default_fp=ti.f32)
@@ -152,7 +152,7 @@ def test_full_detector_uses_same_schema(tmp_path):
     import h5py
     from pathlib import Path
     from litepath.batch import BatchConfig, run_batch
-    from litepath.tracer import build_geometry
+    from litepath.geometry.build import build_geometry
 
     geometry = build_geometry(
         Path("PHASE2_INNER_STRUCTURE_closed.gdml"),

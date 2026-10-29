@@ -35,13 +35,14 @@ from litepath.batch import BatchAccumulator, H5_OUTPUT_NAME, _load_muon_file, \
     _MUON_FILE_CACHE
 from litepath.cherenkov import generate_cherenkov_photons, generate_spot_photons
 from litepath.io_h5 import SOURCE_TRACK, SOURCE_SPOT
-from litepath.tracer import (
-    Geometry, build_single_lappd_geometry,
-    trace_rays, compute_track_length,
-    N_HIT_COLS, N_EXPANDED_COLS,
-    HI, HT, HDS, H_ARRIVAL, H_WAVELEN, H_BOUNCE, H_SOURCE,
-    DET_SYS_LAPPD_ANNIE, C_MM_NS, N_WATER_DEFAULT, SOURCE_CKV,
+from litepath.hits import (
+    N_HIT_COLS, N_EXPANDED_COLS, HI, HT, HDS, H_ARRIVAL, H_WAVELEN, H_BOUNCE, H_SOURCE,
+    DET_SYS_LAPPD_ANNIE, SOURCE_CKV,
 )
+from litepath.optics import C_MM_NS, N_WATER_DEFAULT
+from litepath.geometry.build import Geometry, build_single_lappd_geometry
+from litepath.engine.trace import trace_rays
+from litepath.sources.track import compute_track_length
 
 
 # Default upstream launch band when sampling muon vertices in front of the
