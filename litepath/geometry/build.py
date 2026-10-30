@@ -119,6 +119,22 @@ class Geometry:
         default_factory=lambda: np.zeros(0, dtype=np.float32)
     )  # (P,) float32 — max(body, HW) bounding sphere radius
 
+    # ---- Per-mesh-type BVHs for PMT meshes (see bvh.build_packed_bvh) ----
+    # Slots 0-3: body mesh types (photocathode triangles only, ids into
+    # pmt_body_tris); slots 4-5: HW types 4 and 5 (ids into pmt_hw_tris).
+    pmt_bvh_bounds: np.ndarray = field(
+        default_factory=lambda: np.zeros((0, 6), dtype=np.float32)
+    )  # (N, 6) float32 — node box [min xyz, max xyz], local frame
+    pmt_bvh_nodes: np.ndarray = field(
+        default_factory=lambda: np.zeros((0, 4), dtype=np.int32)
+    )  # (N, 4) int32 — [left, right, tri_start, tri_end]
+    pmt_bvh_tri_ids: np.ndarray = field(
+        default_factory=lambda: np.zeros(0, dtype=np.int32)
+    )  # (M,) int32 — triangle index per leaf entry
+    pmt_bvh_roots: np.ndarray = field(
+        default_factory=lambda: np.full(6, -1, dtype=np.int32)
+    )  # (6,) int32 — root node per slot, -1 = no triangles
+
     # ---- Surfboard (obscurant PVC panel) oriented boxes ----
     surfboard_data: np.ndarray = field(
         default_factory=lambda: np.empty((0, 16), dtype=np.float32)
@@ -550,6 +566,7 @@ def build_geometry(
     pmt_hw_types_arr = np.zeros(0, dtype=np.int32)
     pmt_instance_pos_arr = np.zeros((0, 3), dtype=np.float32)
     pmt_bounding_radii_arr = np.zeros(0, dtype=np.float32)
+    pmt_bvh = None
 
     if not no_pmt_holders and pmt_csv_path and pmt_csv_path.exists() and len(pmt_centers) > 0:
         body_meshes = pmt_mesh.load_pmt_body_meshes()
@@ -591,6 +608,19 @@ def build_geometry(
                     br = max(br, hw_md.bounding_radius)
             pmt_bounding_radii_arr[i] = br
 
+        # One BVH per mesh type, shared by all instances.  Only photocathode
+        # body triangles can register a hit in the kernel, so the body BVHs
+        # hold just those; the other body triangles never stop a ray.
+        from litepath.bvh import build_packed_bvh
+        from litepath.materials import MaterialID
+        slots = []
+        for mt in range(4):
+            ids = np.arange(pmt_body_offsets[mt], pmt_body_offsets[mt + 1])
+            slots.append((pmt_body_tris, ids[pmt_body_mat_ids[ids] == MaterialID.PHOTOCATHODE]))
+        for k in range(2):
+            slots.append((pmt_hw_tris, np.arange(pmt_hw_offsets[k], pmt_hw_offsets[k + 1])))
+        pmt_bvh = build_packed_bvh(slots)
+
         n_loaded = sum(1 for v in body_meshes.values() if v is not None)
         print(f"  PMT body meshes: {n_loaded}/4 types loaded, "
               f"{pmt_body_tris.shape[0]} total tris, "
@@ -629,6 +659,12 @@ def build_geometry(
         pmt_hw_types=pmt_hw_types_arr,
         pmt_instance_pos=pmt_instance_pos_arr,
         pmt_bounding_radii=pmt_bounding_radii_arr,
+        **({} if pmt_bvh is None else dict(
+            pmt_bvh_bounds=pmt_bvh.bounds,
+            pmt_bvh_nodes=pmt_bvh.nodes,
+            pmt_bvh_tri_ids=pmt_bvh.tri_ids,
+            pmt_bvh_roots=pmt_bvh.roots,
+        )),
         # BVH
         bvh_node_min=bvh.node_min,
         bvh_node_max=bvh.node_max,

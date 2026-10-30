@@ -167,3 +167,69 @@ def _build_recursive(
         "tri_end": -1,
     })
     return idx
+
+
+@dataclass
+class PackedBVH:
+    """Several per-mesh BVHs packed into shared flat arrays.
+
+    Used for instanced meshes (PMT bodies and holders): each mesh type gets
+    its own BVH in the mesh's local frame, shared by every instance of that
+    type.  Slot *k* is one mesh type; ``roots[k]`` is its root node, or -1
+    when the slot has no triangles.  Leaf triangle ids index the source
+    triangle array the slot was built from.
+    """
+    bounds: np.ndarray   # (N, 6) float32 — [min x,y,z, max x,y,z] per node
+    nodes: np.ndarray    # (N, 4) int32 — [left, right, tri_start, tri_end]; left = -1 for a leaf
+    tri_ids: np.ndarray  # (M,)  int32 — source triangle index per leaf entry
+    roots: np.ndarray    # (K,)  int32 — root node per slot, -1 = empty
+
+
+def build_packed_bvh(
+    slots: list[tuple[np.ndarray, np.ndarray]],
+    max_leaf: int = 8,
+    pad: float = 1e-3,
+) -> PackedBVH:
+    """Build one BVH per slot and pack them into shared arrays.
+
+    Parameters
+    ----------
+    slots:
+        One ``(tris, ids)`` pair per slot: ``tris`` is an (T, 9) float32
+        triangle soup (three vertices per row) and ``ids`` the indices of
+        the triangles in ``tris`` that this slot's BVH should contain.
+    max_leaf:
+        Maximum number of triangles per leaf node.
+    pad:
+        Margin (mm) added to every node box so float rounding can never
+        reject a triangle lying on a box face.
+    """
+    bounds, nodes, tri_ids = [], [], []
+    roots = np.full(len(slots), -1, dtype=np.int32)
+    n_nodes = n_ids = 0
+
+    for k, (tris, ids) in enumerate(slots):
+        ids = np.asarray(ids, dtype=np.int32)
+        if ids.size == 0:
+            continue
+        verts = tris[ids].reshape(-1, 3).astype(np.float32)
+        local = build_bvh(verts, np.arange(verts.shape[0], dtype=np.int32).reshape(-1, 3),
+                          max_leaf=max_leaf)
+        leaf = local.node_left == -1
+        node = np.stack([local.node_left, local.node_right,
+                         local.tri_start, local.tri_end], axis=1).astype(np.int32)
+        node[~leaf, 0:2] += n_nodes
+        node[leaf, 2:4] += n_ids
+        bounds.append(np.hstack([local.node_min - pad, local.node_max + pad]).astype(np.float32))
+        nodes.append(node)
+        tri_ids.append(ids[local.tri_ids])
+        roots[k] = n_nodes + local.root
+        n_nodes += local.n_nodes
+        n_ids += local.tri_ids.shape[0]
+
+    return PackedBVH(
+        bounds=np.vstack(bounds) if bounds else np.zeros((0, 6), dtype=np.float32),
+        nodes=np.vstack(nodes) if nodes else np.zeros((0, 4), dtype=np.int32),
+        tri_ids=np.concatenate(tri_ids).astype(np.int32) if tri_ids else np.zeros(0, dtype=np.int32),
+        roots=roots,
+    )

@@ -476,6 +476,83 @@ def _lappd_local_coords(hx, hy, hz, lcx, lcy, lcz, sx, sy, sz, nx, ny, nz):
     return u, v
 
 
+@ti.func
+def _packed_bvh_nearest(root, ox, oy, oz, dx, dy, dz, t_limit,
+                        bvh_bounds: ti.template(), bvh_nodes: ti.template(),
+                        bvh_tri_ids: ti.template(), tris: ti.template()):
+    """Nearest triangle hit in one packed BVH (see bvh.build_packed_bvh).
+
+    The ray is in the BVH's local frame.  Only hits with 1e-6 < t < t_limit
+    count.  Equal-distance hits (a ray through an edge shared by two
+    triangles) resolve to the lower triangle index, as a loop over the
+    triangles in order would.  Returns (found, t, triangle index, nx, ny, nz).
+    """
+    found = 0
+    best = t_limit
+    best_tri = -1
+    bnx = 0.0
+    bny = 0.0
+    bnz = 0.0
+
+    stack = ti.Vector([-1] * 32, dt=ti.i32)
+    stack[0] = root
+    sp = 0
+    while sp >= 0:
+        node = stack[sp]
+        sp -= 1
+
+        if bvh_nodes[node, 0] == -1:  # leaf
+            for k in range(bvh_nodes[node, 2], bvh_nodes[node, 3]):
+                tri = bvh_tri_ids[k]
+                h, th, _u, _v, nx, ny, nz = _ray_triangle_intersect(
+                    ox, oy, oz, dx, dy, dz,
+                    tris[tri, 0], tris[tri, 1], tris[tri, 2],
+                    tris[tri, 3], tris[tri, 4], tris[tri, 5],
+                    tris[tri, 6], tris[tri, 7], tris[tri, 8],
+                )
+                if h and th > 1e-6 and (th < best or (found and th == best and tri < best_tri)):
+                    found = 1
+                    best = th
+                    best_tri = tri
+                    bnx = nx
+                    bny = ny
+                    bnz = nz
+        else:  # internal node — test children, push near-first
+            ln = bvh_nodes[node, 0]
+            hl, tl = _ray_bbox_intersect(ox, oy, oz, dx, dy, dz,
+                bvh_bounds[ln, 0], bvh_bounds[ln, 1], bvh_bounds[ln, 2],
+                bvh_bounds[ln, 3], bvh_bounds[ln, 4], bvh_bounds[ln, 5])
+
+            rn = bvh_nodes[node, 1]
+            hr, tr = _ray_bbox_intersect(ox, oy, oz, dx, dy, dz,
+                bvh_bounds[rn, 0], bvh_bounds[rn, 1], bvh_bounds[rn, 2],
+                bvh_bounds[rn, 3], bvh_bounds[rn, 4], bvh_bounds[rn, 5])
+
+            if hl and hr:
+                if tl < tr:
+                    if tr < best:
+                        sp += 1
+                        stack[sp] = rn
+                    if tl < best:
+                        sp += 1
+                        stack[sp] = ln
+                else:
+                    if tl < best:
+                        sp += 1
+                        stack[sp] = ln
+                    if tr < best:
+                        sp += 1
+                        stack[sp] = rn
+            elif hl and tl < best:
+                sp += 1
+                stack[sp] = ln
+            elif hr and tr < best:
+                sp += 1
+                stack[sp] = rn
+
+    return found, best, best_tri, bnx, bny, bnz
+
+
 # ---- GPU kernel ----
 #
 # Each GPU thread processes one photon independently.  Every thread tests
@@ -515,16 +592,18 @@ def trace_kernel(
     pmt_radii: ti.types.ndarray(ndim=1),
     pmt_dirs: ti.types.ndarray(ndim=2),
     pmt_body_tris: ti.types.ndarray(ndim=2),
-    pmt_body_mat_ids: ti.types.ndarray(ndim=1),
     pmt_body_offsets: ti.types.ndarray(ndim=1),
     pmt_rotmats: ti.types.ndarray(ndim=2),
     pmt_mesh_types: ti.types.ndarray(ndim=1),
     pmt_hw_types: ti.types.ndarray(ndim=1),
     pmt_hw_tris: ti.types.ndarray(ndim=2),
     pmt_hw_mat_ids: ti.types.ndarray(ndim=1),
-    pmt_hw_offsets: ti.types.ndarray(ndim=1),
     pmt_instance_pos: ti.types.ndarray(ndim=2),
     pmt_bounding_radii: ti.types.ndarray(ndim=1),
+    pmt_bvh_bounds: ti.types.ndarray(ndim=2),
+    pmt_bvh_nodes: ti.types.ndarray(ndim=2),
+    pmt_bvh_tri_ids: ti.types.ndarray(ndim=1),
+    pmt_bvh_roots: ti.types.ndarray(ndim=1),
     lappd_data: ti.types.ndarray(ndim=2),
     lappd_strip: ti.types.ndarray(ndim=2),
     tank_radius: ti.f32,
@@ -708,9 +787,8 @@ def trace_kernel(
                 mt = ti.cast(pmt_mesh_types[p], ti.i32)
                 if mt < 0:
                     continue
-                t_start = pmt_body_offsets[mt]
-                t_end = pmt_body_offsets[mt + 1]
-                if t_end <= t_start:
+                body_root = pmt_bvh_roots[mt]  # -1: no photocathode triangles
+                if body_root < 0:
                     continue
 
                 ipx = pmt_instance_pos[p, 0]
@@ -756,59 +834,46 @@ def trace_kernel(
                 ldy = dx * rm3 + dy * rm4 + dz * rm5
                 ldz = dx * rm6 + dy * rm7 + dz * rm8
 
-                for t in range(t_start, t_end):
-                    v0x = pmt_body_tris[t, 0]
-                    v0y = pmt_body_tris[t, 1]
-                    v0z = pmt_body_tris[t, 2]
-                    v1x = pmt_body_tris[t, 3]
-                    v1y = pmt_body_tris[t, 4]
-                    v1z = pmt_body_tris[t, 5]
-                    v2x = pmt_body_tris[t, 6]
-                    v2y = pmt_body_tris[t, 7]
-                    v2z = pmt_body_tris[t, 8]
+                # Nearest photocathode triangle (the BVH holds only those)
+                _hit, _t, _tri, _nx, _ny, _nz = _packed_bvh_nearest(
+                    body_root, lox, loy, loz, ldx, ldy, ldz, best_t,
+                    pmt_bvh_bounds, pmt_bvh_nodes, pmt_bvh_tri_ids, pmt_body_tris,
+                )
+                if _hit:
+                    # Hit position in local frame
+                    hx_l = lox + ldx * _t
+                    hy_l = loy + ldy * _t
+                    hz_l = loz + ldz * _t
 
-                    _hit, _t, _u, _v, _nx, _ny, _nz = _ray_triangle_intersect(
-                        lox, loy, loz, ldx, ldy, ldz,
-                        v0x, v0y, v0z,
-                        v1x, v1y, v1z,
-                        v2x, v2y, v2z,
-                    )
+                    # Transform normal to world frame: n_world = R · n_local
+                    # R is (R^T)^T, stored as [rm0, rm3, rm6] row 0, etc.
+                    wnx = _nx * rm0 + _ny * rm3 + _nz * rm6
+                    wny = _nx * rm1 + _ny * rm4 + _nz * rm7
+                    wnz = _nx * rm2 + _ny * rm5 + _nz * rm8
+                    n_len = ti.sqrt(wnx * wnx + wny * wny + wnz * wnz)
+                    if n_len > 1e-12:
+                        wnx /= n_len
+                        wny /= n_len
+                        wnz /= n_len
 
-                    if _hit and _t > 1e-6 and _t < best_t and pmt_body_mat_ids[t] == 2:
-                        # Hit position in local frame
-                        hx_l = lox + ldx * _t
-                        hy_l = loy + ldy * _t
-                        hz_l = loz + ldz * _t
-
-                        # Transform normal to world frame: n_world = R · n_local
-                        # R is (R^T)^T, stored as [rm0, rm3, rm6] row 0, etc.
-                        wnx = _nx * rm0 + _ny * rm3 + _nz * rm6
-                        wny = _nx * rm1 + _ny * rm4 + _nz * rm7
-                        wnz = _nx * rm2 + _ny * rm5 + _nz * rm8
-                        n_len = ti.sqrt(wnx * wnx + wny * wny + wnz * wnz)
-                        if n_len > 1e-12:
-                            wnx /= n_len
-                            wny /= n_len
-                            wnz /= n_len
-
-                        best_t = _t
-                        # World hit = instance_pos + R · h_local
-                        best_x = ipx + hx_l * rm0 + hy_l * rm3 + hz_l * rm6
-                        best_y = ipy + hx_l * rm1 + hy_l * rm4 + hz_l * rm7
-                        best_z = ipz + hx_l * rm2 + hy_l * rm5 + hz_l * rm8
-                        best_nx = wnx
-                        best_ny = wny
-                        best_nz = wnz
-                        best_hit = CID_PMT
-                        best_det_idx = p
-                        best_det_sys = DET_SYS_PMT
-                        best_mat = 2
-                        pdx = pmt_dirs[p, 0]
-                        pdy = pmt_dirs[p, 1]
-                        pdz = pmt_dirs[p, 2]
-                        theta, phi = _pmt_local_coords(wnx, wny, wnz, pdx, pdy, pdz)
-                        best_lu = theta
-                        best_lv = phi
+                    best_t = _t
+                    # World hit = instance_pos + R · h_local
+                    best_x = ipx + hx_l * rm0 + hy_l * rm3 + hz_l * rm6
+                    best_y = ipy + hx_l * rm1 + hy_l * rm4 + hz_l * rm7
+                    best_z = ipz + hx_l * rm2 + hy_l * rm5 + hz_l * rm8
+                    best_nx = wnx
+                    best_ny = wny
+                    best_nz = wnz
+                    best_hit = CID_PMT
+                    best_det_idx = p
+                    best_det_sys = DET_SYS_PMT
+                    best_mat = 2
+                    pdx = pmt_dirs[p, 0]
+                    pdy = pmt_dirs[p, 1]
+                    pdz = pmt_dirs[p, 2]
+                    theta, phi = _pmt_local_coords(wnx, wny, wnz, pdx, pdy, pdz)
+                    best_lu = theta
+                    best_lv = phi
 
         # ---- PMT hardware (holder) mesh refinement ----
         if n_hw_tris > 0 and n_pmts > 0:
@@ -816,9 +881,8 @@ def trace_kernel(
                 hwmt = ti.cast(pmt_hw_types[p], ti.i32)
                 if hwmt < 4:
                     continue
-                hw_start = pmt_hw_offsets[hwmt - 4]
-                hw_end = pmt_hw_offsets[hwmt - 3]
-                if hw_end <= hw_start:
+                hw_root = pmt_bvh_roots[hwmt]  # slots 4-5 hold HW types 4-5
+                if hw_root < 0:
                     continue
 
                 ipx = pmt_instance_pos[p, 0]
@@ -860,49 +924,35 @@ def trace_kernel(
                 ldy = dx * rm3 + dy * rm4 + dz * rm5
                 ldz = dx * rm6 + dy * rm7 + dz * rm8
 
-                for t in range(hw_start, hw_end):
-                    v0x = pmt_hw_tris[t, 0]
-                    v0y = pmt_hw_tris[t, 1]
-                    v0z = pmt_hw_tris[t, 2]
-                    v1x = pmt_hw_tris[t, 3]
-                    v1y = pmt_hw_tris[t, 4]
-                    v1z = pmt_hw_tris[t, 5]
-                    v2x = pmt_hw_tris[t, 6]
-                    v2y = pmt_hw_tris[t, 7]
-                    v2z = pmt_hw_tris[t, 8]
+                _hit, _t, _tri, _nx, _ny, _nz = _packed_bvh_nearest(
+                    hw_root, lox, loy, loz, ldx, ldy, ldz, best_t,
+                    pmt_bvh_bounds, pmt_bvh_nodes, pmt_bvh_tri_ids, pmt_hw_tris,
+                )
+                if _hit:
+                    hx_l = lox + ldx * _t
+                    hy_l = loy + ldy * _t
+                    hz_l = loz + ldz * _t
 
-                    _hit, _t, _u, _v, _nx, _ny, _nz = _ray_triangle_intersect(
-                        lox, loy, loz, ldx, ldy, ldz,
-                        v0x, v0y, v0z,
-                        v1x, v1y, v1z,
-                        v2x, v2y, v2z,
-                    )
+                    wnx = _nx * rm0 + _ny * rm3 + _nz * rm6
+                    wny = _nx * rm1 + _ny * rm4 + _nz * rm7
+                    wnz = _nx * rm2 + _ny * rm5 + _nz * rm8
+                    n_len = ti.sqrt(wnx * wnx + wny * wny + wnz * wnz)
+                    if n_len > 1e-12:
+                        wnx /= n_len
+                        wny /= n_len
+                        wnz /= n_len
 
-                    if _hit and _t > 1e-6 and _t < best_t:
-                        hx_l = lox + ldx * _t
-                        hy_l = loy + ldy * _t
-                        hz_l = loz + ldz * _t
-
-                        wnx = _nx * rm0 + _ny * rm3 + _nz * rm6
-                        wny = _nx * rm1 + _ny * rm4 + _nz * rm7
-                        wnz = _nx * rm2 + _ny * rm5 + _nz * rm8
-                        n_len = ti.sqrt(wnx * wnx + wny * wny + wnz * wnz)
-                        if n_len > 1e-12:
-                            wnx /= n_len
-                            wny /= n_len
-                            wnz /= n_len
-
-                        best_t = _t
-                        best_x = ipx + hx_l * rm0 + hy_l * rm3 + hz_l * rm6
-                        best_y = ipy + hx_l * rm1 + hy_l * rm4 + hz_l * rm7
-                        best_z = ipz + hx_l * rm2 + hy_l * rm5 + hz_l * rm8
-                        best_nx = wnx
-                        best_ny = wny
-                        best_nz = wnz
-                        best_hit = CID_INNER_STRUCTURE
-                        best_det_idx = -1
-                        best_det_sys = DET_SYS_NONE
-                        best_mat = pmt_hw_mat_ids[t]
+                    best_t = _t
+                    best_x = ipx + hx_l * rm0 + hy_l * rm3 + hz_l * rm6
+                    best_y = ipy + hx_l * rm1 + hy_l * rm4 + hz_l * rm7
+                    best_z = ipz + hx_l * rm2 + hy_l * rm5 + hz_l * rm8
+                    best_nx = wnx
+                    best_ny = wny
+                    best_nz = wnz
+                    best_hit = CID_INNER_STRUCTURE
+                    best_det_idx = -1
+                    best_det_sys = DET_SYS_NONE
+                    best_mat = pmt_hw_mat_ids[_tri]
 
         for l in range(n_lappds):
             lcx = lappd_data[l, 0]

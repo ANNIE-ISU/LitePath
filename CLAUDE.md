@@ -32,7 +32,7 @@ changed before starting.
      (2026-10-27, commits bfb616b, 75ef905, 52f0c1d; issues closed)
    - **Minor, in v0.2:** BUG-6 (#7) — current work uses the housed ANNIE LAPPD
      (system 2); BUG-1 (#2) — resolved by removing the `run` command (2026-10-28, branch
-     `refactor/phase0-split-tracer`);
+     commit 4c5e060);
      BUG-8, BUG-9, BUG-10
    - **Backlog (no milestone):** BUG-4 (#5) — tracks are metre-scale for now;
      BUG-2 (#3) — reclassified as an enhancement (future wavelength feature)
@@ -46,8 +46,8 @@ changed before starting.
    issues for pending features; `v1.0-validated` milestone once defined.
 4. **Org transfer** — DONE (2026-10-27): now `ANNIE-ISU/LitePath`.
 5. **Restore Metal GPU backend** — issue #12 (opened 2026-10-27). All
-   `ti.init` calls are hard-coded to `ti.cpu` because `trace_kernel` takes 32
-   ndarray args (> Metal's 31-buffer limit). Soon a priority; not started.
+   `ti.init` calls are hard-coded to `ti.cpu` because `trace_kernel` takes 34
+   ndarray args (> Metal's 31-buffer limit; 32 before the PMT-mesh BVH). Soon a priority; not started.
 
 ## Key Facts for Code Changes
 

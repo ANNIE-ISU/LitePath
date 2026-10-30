@@ -590,7 +590,7 @@ path. Both are off by default (`0.0` = disabled).
 | `viz_lappd_server.py` | Standalone LAPPD module viewer |
 | `optics.py` | Optical material database, Fresnel/reflectance evaluation, `C_MM_NS`, `N_WATER_DEFAULT` |
 | `materials.py` | Material ID enum, property table, PMT mesh triangle classification |
-| `bvh.py` | Median-split BVH (flat arrays) for kernel ray–triangle traversal |
+| `bvh.py` | Median-split BVH (flat arrays) for kernel ray–triangle traversal; `build_packed_bvh()` packs one BVH per PMT body/holder mesh type, shared by all instances |
 | `benchmark.py` | WAGLE ROOT reader and conversion to the batch HDF5 schema (`benchmark`) |
 | `_version.py` | Package version |
 | **Scripts** | |
