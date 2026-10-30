@@ -32,7 +32,7 @@ from litepath.hits import (
 from litepath.optics import C_MM_NS, N_WATER_DEFAULT, WaterAttenuation
 from litepath.geometry.build import Geometry
 from litepath.engine.trace import trace_rays
-from litepath.sources.track import compute_track_length
+from litepath.sources.track import advance_muon, light_segment
 from litepath.simulate import trace_cherenkov, trace_muon_light
 
 
@@ -523,15 +523,23 @@ def run_batch(
                 event_src_sci = 0
             else:
                 src_type = SOURCE_TRACK
-                track_length = compute_track_length(muon_pos, muon_dir, geometry)
-                o, d, ct = generate_cherenkov_photons(
-                    muon_pos, muon_dir, config.photons_per_cm,
-                    track_length=track_length, rng=rng,
-                )
+                # Light comes only from the part of the track inside the tank;
+                # emission starts at the tank entry if the muon starts outside.
+                start, track_length = light_segment(muon_pos, muon_dir, geometry)
+                emit_pos = advance_muon(muon_pos, muon_dir, start) if start > 0.0 else muon_pos
+                if track_length > 0.0:
+                    o, d, ct = generate_cherenkov_photons(
+                        emit_pos, muon_dir, config.photons_per_cm,
+                        track_length=track_length, rng=rng,
+                    )
+                else:  # never enters the tank
+                    o = np.zeros((0, 3), dtype=np.float32)
+                    d = np.zeros((0, 3), dtype=np.float32)
+                    ct = np.zeros(0, dtype=np.float32)
                 event_src_ckv = len(o)
-                if config.scintillation_enabled:
+                if config.scintillation_enabled and track_length > 0.0:
                     sci_o, sci_d, sci_ct = generate_scintillation_photons(
-                        muon_pos, muon_dir, config.photons_per_cm_scint,
+                        emit_pos, muon_dir, config.photons_per_cm_scint,
                         track_length=track_length, rng=rng,
                         tau_fast=config.tau_fast, tau_slow=config.tau_slow,
                         fast_fraction=config.fast_fraction,

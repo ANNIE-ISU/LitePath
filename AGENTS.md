@@ -22,7 +22,7 @@ litepath/
 │   ├── geometry/build.py  # Geometry dataclass, build_geometry(), surfboards
 │   ├── engine/kernel.py   # Taichi intersection functions, trace_kernel
 │   ├── engine/trace.py    # trace_rays(), trace_with_optics()
-│   ├── sources/track.py   # Muon track lengths
+│   ├── sources/track.py   # Light-generating part of a muon track (inside the tank)
 │   ├── simulate.py    # trace_muon_light() / trace_cherenkov()
 │   ├── hits.py        # Hit-array columns and detector/source codes
 │   ├── tracer.py      # Compatibility re-exports of the above (old imports)

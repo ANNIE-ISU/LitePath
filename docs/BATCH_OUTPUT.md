@@ -81,7 +81,7 @@ columns that do not apply to a given source type are NaN.
 | `dir_x/y/z` | float32 | Unit direction: muon direction / unused / beam aim direction |
 | `theta_deg` | float32 | Polar angle from vertical (°); 0 = downward (−z) |
 | `phi_deg` | float32 | Azimuthal angle in XY (°), in [0, 360); 0 = +x |
-| `track_length_mm` | float32 | Chord through the detector (mm); 0 for point sources |
+| `track_length_mm` | float32 | Length of track over which light was generated (mm). Full detector: the part inside the tank, from the start point (or the tank entry, if the muon starts outside) to the tank exit. This is a simulation cutoff, not a physical range: the muon is not assumed to stop there. `batch-lappd`: up to where the muon leaves the LAPPD housing box. 0 for point sources and for muons that never enter the tank |
 | `n_generated` | int32 | Total photons generated |
 | `n_detected` | int32 | Photons detected by PMTs / LAPPDs |
 | `n_generated_ckv` | int32 | Cherenkov component of `n_generated` |

@@ -10,7 +10,7 @@ from litepath.hits import (
     SOURCE_CKV, SOURCE_SCI,
 )
 from litepath.optics import C_MM_NS, N_WATER_DEFAULT, OpticalMaterial, WaterAttenuation
-from litepath.sources.track import compute_track_length
+from litepath.sources.track import advance_muon, light_segment
 
 
 def trace_muon_light(
@@ -83,8 +83,9 @@ def trace_muon_light(
     if rng is None:
         rng = np.random.default_rng()
 
-    # ---- Compute track length from geometry ----
-    track_length = compute_track_length(muon_pos, muon_dir, geometry)
+    # ---- Stretch of track that emits light (inside the tank) ----
+    start, track_length = light_segment(muon_pos, muon_dir, geometry)
+    emit_pos = advance_muon(muon_pos, muon_dir, start) if start > 0.0 else muon_pos
 
     # ---- Generate chosen photon types and concatenate with source tagging ----
     origins_list: list[np.ndarray] = []
@@ -92,17 +93,22 @@ def trace_muon_light(
     ctimes_list: list[np.ndarray] = []
     sources_list: list[np.ndarray] = []
 
-    ckv_origins, ckv_directions, ckv_ctimes = generate_cherenkov_photons(
-        muon_pos, muon_dir, photons_per_cm, track_length=track_length, rng=rng,
-    )
+    if track_length > 0.0:
+        ckv_origins, ckv_directions, ckv_ctimes = generate_cherenkov_photons(
+            emit_pos, muon_dir, photons_per_cm, track_length=track_length, rng=rng,
+        )
+    else:  # never enters the tank
+        ckv_origins = np.zeros((0, 3), dtype=np.float32)
+        ckv_directions = np.zeros((0, 3), dtype=np.float32)
+        ckv_ctimes = np.zeros(0, dtype=np.float32)
     origins_list.append(ckv_origins)
     directions_list.append(ckv_directions)
     ctimes_list.append(ckv_ctimes)
     sources_list.append(np.full(ckv_origins.shape[0], SOURCE_CKV, dtype=np.float32))
 
-    if scintillation_enabled:
+    if scintillation_enabled and track_length > 0.0:
         sci_origins, sci_directions, sci_ctimes = generate_scintillation_photons(
-            muon_pos, muon_dir, photons_per_cm_scint, track_length=track_length,
+            emit_pos, muon_dir, photons_per_cm_scint, track_length=track_length,
             rng=rng, tau_fast=tau_fast, tau_slow=tau_slow,
             fast_fraction=fast_fraction, wavelength=wavelength_scint_nm,
         )

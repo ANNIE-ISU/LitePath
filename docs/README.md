@@ -566,7 +566,7 @@ path. Both are off by default (`0.0` = disabled).
 | `geometry/build.py` | `Geometry` dataclass, `build_geometry()`, surfboards and housings, `build_single_lappd_geometry()` |
 | `engine/kernel.py` | Taichi ray-intersection functions and `trace_kernel` |
 | `engine/trace.py` | `trace_rays()`, `trace_with_optics()` (multi-bounce, water attenuation) |
-| `sources/track.py` | Muon track length through the tank and LAPPD housings |
+| `sources/track.py` | Where along a muon track light is generated: the part inside the tank (housing box for standalone LAPPD) |
 | `simulate.py` | `trace_muon_light()` / `trace_cherenkov()`: generate muon light and trace it |
 | `hits.py` | Hit-array column indices, component IDs, detector-system and photon-source codes |
 | `tracer.py` | Compatibility module: re-exports the names above for older scripts |

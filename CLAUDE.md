@@ -56,6 +56,12 @@ changed before starting.
   is now only a compatibility module; code lives in `geometry/`, `engine/`,
   `sources/` and `simulate.py` (see `docs/README.md` code map)
 - HDF5 schema version is `SCHEMA_VERSION = 1` in `io_h5.py`
+- Track length (`sources/track.py`, `track_length_mm`) is where light is
+  generated: the part of the muon line inside the tank. It is a simulation
+  cutoff, NOT a physical range. Muons do not "stop" at the tank wall,
+  surfboards or housings, which only block photons (future MRD work relies on
+  this). `batch-lappd` (no tank) uses the housing-box exit instead. Renaming
+  the column and storing entry/exit points is planned with the step-3 schema change
 - phi convention: truth `phi_deg` stored in `[0, 360)` to match the fit grid
   (BUG-5, #6); files written before the fix hold `[−180, 180]` and
   `load_observed_event()` wraps them on read

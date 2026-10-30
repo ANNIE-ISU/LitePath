@@ -1,10 +1,23 @@
-"""Muon track lengths through the tank and LAPPD housings."""
+"""Where along a muon track light is generated.
+
+In the full detector, light is generated only on the part of the muon's
+path inside the tank water.  This is a simulation cutoff, not a physical
+range: the muon itself carries on past the tank wall (e.g. into the MRD),
+and nothing here models a muon stopping.  Surfboards and LAPPD housings
+block photons in the ray tracer but do not end the track.
+
+The standalone LAPPD geometry (``batch-lappd``, ``viz-lappd``) has no tank;
+there the track ends where the muon leaves the LAPPD housing box.
+"""
 
 import math
 
 import numpy as np
 
 from litepath.geometry.build import Geometry
+
+# Muon speed used by the photon generators (cherenkov.py, scintillation.py).
+_MUON_SPEED_M_S = 0.999999 * 299792458.0
 
 
 def _housing_from_array(arr: np.ndarray):
@@ -22,129 +35,113 @@ def _housing_from_array(arr: np.ndarray):
     )
 
 
+def tank_light_segment(
+    muon_pos: tuple[float, ...],
+    muon_dir: tuple[float, float, float],
+    tank_radius: float,
+    tank_z_min: float,
+    tank_z_max: float,
+) -> tuple[float, float]:
+    """Part of the muon's path inside the tank cylinder.
+
+    Returns ``(start, length)`` in metres along the (unit) muon direction,
+    measured from ``muon_pos``: ``start`` is 0 for a muon that starts inside
+    the tank and the distance to the tank entry for one that starts outside;
+    ``length`` is 0 if the muon never enters the tank.
+    """
+    px, py, pz = (float(v) for v in muon_pos[:3])
+    dx, dy, dz = (float(v) for v in muon_dir[:3])
+    lo, hi = 0.0, math.inf
+
+    # Cylinder wall: |(px, py) + t (dx, dy)| <= R
+    a = dx * dx + dy * dy
+    c = px * px + py * py - tank_radius * tank_radius
+    if a > 1e-12:
+        b = px * dx + py * dy
+        disc = b * b - a * c
+        if disc < 0.0:
+            return 0.0, 0.0
+        root = math.sqrt(disc)
+        lo = max(lo, (-b - root) / a)
+        hi = min(hi, (-b + root) / a)
+    elif c > 0.0:
+        return 0.0, 0.0
+
+    # End caps: z_min <= pz + t dz <= z_max
+    if abs(dz) > 1e-12:
+        t1 = (tank_z_min - pz) / dz
+        t2 = (tank_z_max - pz) / dz
+        lo = max(lo, min(t1, t2))
+        hi = min(hi, max(t1, t2))
+    elif not (tank_z_min <= pz <= tank_z_max):
+        return 0.0, 0.0
+
+    if hi <= lo:
+        return 0.0, 0.0
+    return lo / 1000.0, (hi - lo) / 1000.0
+
+
+def light_segment(
+    muon_pos: tuple[float, ...],
+    muon_dir: tuple[float, float, float],
+    geometry: Geometry | None,
+) -> tuple[float, float]:
+    """``(start, length)`` in metres of the stretch of track that emits light.
+
+    Full detector: the part inside the tank (:func:`tank_light_segment`).
+    Standalone LAPPD geometry (no tank): from the muon's start to where it
+    leaves the LAPPD housing box.  No geometry: 4.0 m from the start.
+    """
+    if geometry is not None and geometry.tank_radius > 0.0:
+        return tank_light_segment(muon_pos, muon_dir, geometry.tank_radius,
+                                  geometry.tank_z_min, geometry.tank_z_max)
+
+    if geometry is not None and geometry.lappd_housing_data.shape[0] > 0:
+        from litepath.lappd_model import compute_housing_track_length
+        housing = _housing_from_array(geometry.lappd_housing_data[0])
+        return 0.0, compute_housing_track_length(muon_pos[:3], muon_dir[:3], housing)
+
+    return 0.0, 4.0
+
+
+def compute_track_length(
+    muon_pos: tuple[float, ...],
+    muon_dir: tuple[float, float, float],
+    geometry: Geometry | None,
+) -> float:
+    """Length (m) of the track over which light is generated.
+
+    See :func:`light_segment`.  In the full detector this is the length
+    inside the tank, not a physical muon range.
+    """
+    return light_segment(muon_pos, muon_dir, geometry)[1]
+
+
 def compute_tank_track_length(
-    muon_pos: tuple[float, float, float],
+    muon_pos: tuple[float, ...],
     muon_dir: tuple[float, float, float],
     tank_radius: float,
     tank_z_min: float,
     tank_z_max: float,
 ) -> float:
-    """Maximum muon track length (m) before exiting the tank cylinder.
-
-    Returns 1.05 × the ray-to-exit distance in metres, or 4.0 m fallback.
-    """
-    Px, Py, Pz = muon_pos[0], muon_pos[1], muon_pos[2]
-    Dx, Dy, Dz = muon_dir[0], muon_dir[1], muon_dir[2]
-    R = tank_radius
-    z_min = tank_z_min
-    z_max = tank_z_max
-
-    candidates = []
-
-    # ---- Cylinder wall (radial exit) ----
-    a = Dx * Dx + Dy * Dy
-    if a > 1e-12:
-        b = 2.0 * (Px * Dx + Py * Dy)
-        c = Px * Px + Py * Py - R * R
-        disc = b * b - 4.0 * a * c
-        if disc >= 0.0:
-            sqrt_disc = math.sqrt(disc)
-            t1 = (-b + sqrt_disc) / (2.0 * a)
-            if t1 > 0:
-                z_at_wall = Pz + t1 * Dz
-                if z_min <= z_at_wall <= z_max:
-                    candidates.append(t1)
-
-    # ---- Top cap (Z = z_max) ----
-    if Dz > 0:
-        t = (z_max - Pz) / Dz
-        if t > 0:
-            r2 = (Px + t * Dx) ** 2 + (Py + t * Dy) ** 2
-            if r2 <= R * R:
-                candidates.append(t)
-
-    # ---- Bottom cap (Z = z_min) ----
-    if Dz < 0:
-        t = (z_min - Pz) / Dz
-        if t > 0:
-            r2 = (Px + t * Dx) ** 2 + (Py + t * Dy) ** 2
-            if r2 <= R * R:
-                candidates.append(t)
-
-    if not candidates:
-        return 4.0
-
-    track_mm = min(candidates)
-    return max(track_mm * 1.05 / 1000.0, 0.5)
+    """Length (m) of the muon's path inside the tank cylinder."""
+    return tank_light_segment(muon_pos, muon_dir, tank_radius, tank_z_min, tank_z_max)[1]
 
 
-def compute_track_length(
-    muon_pos: tuple[float, float, float],
+def advance_muon(
+    muon_pos: tuple[float, ...],
     muon_dir: tuple[float, float, float],
-    geometry: Geometry | None,
-) -> float:
-    """Geometry-aware muon track length in metres.
+    distance: float,
+) -> tuple[float, float, float, float]:
+    """Muon state ``(x, y, z, t0)`` after travelling *distance* metres.
 
-    Delegates to ``compute_tank_track_length`` or
-    ``compute_housing_track_length`` based on the geometry contents.
-    Also tests against surfboard boxes and returns the shortest
-    distance.  Falls back to 4.0 m when no geometry is available.
+    Positions are in mm and ``t0`` in seconds, as the photon generators
+    expect.  Used to start light generation at the tank entry.
     """
-    pos3 = muon_pos[:3] if len(muon_pos) > 3 else muon_pos
-    dir3 = muon_dir[:3] if len(muon_dir) > 3 else muon_dir
-
-    from litepath.lappd_model import compute_housing_track_length
-
-    best = 1e30
-
-    if geometry is not None and geometry.lappd_housing_data.shape[0] > 0:
-        hd = geometry.lappd_housing_data[0]
-        housing = _housing_from_array(hd)
-        best = min(best, compute_housing_track_length(pos3, dir3, housing))
-
-    if geometry is not None:
-        for s in range(geometry.surfboard_data.shape[0]):
-            row = geometry.surfboard_data[s]
-            cx, cy, cz = row[0], row[1], row[2]
-            ax = (row[3], row[4], row[5])
-            ay = (row[6], row[7], row[8])
-            az = (row[9], row[10], row[11])
-            hx, hy, hz = row[12], row[13], row[14]
-
-            ox, oy, oz = pos3
-            dx, dy, dz = dir3
-            t_min = -1e30
-            t_max = 1e30
-            for aax, aay, aaz, h in [(ax[0], ax[1], ax[2], hx),
-                                       (ay[0], ay[1], ay[2], hy),
-                                       (az[0], az[1], az[2], hz)]:
-                denom = dx * aax + dy * aay + dz * aaz
-                oc = (ox - cx) * aax + (oy - cy) * aay + (oz - cz) * aaz
-                if abs(denom) > 1e-30:
-                    t0 = (-h - oc) / denom
-                    t1 = (h - oc) / denom
-                else:
-                    t0 = -1e30 if (-h - oc) < 0 else 1e30
-                    t1 = 1e30 if (h - oc) > 0 else -1e30
-                if t0 > t1:
-                    t0, t1 = t1, t0
-                if t0 > t_min:
-                    t_min = t0
-                if t1 < t_max:
-                    t_max = t1
-                if t_min > t_max:
-                    break
-            else:
-                if t_max > 0 and t_min > -1e-6:
-                    track_mm = max(t_max, 0.0)
-                    best = min(best, track_mm * 1.05 / 1000.0)
-
-    if geometry is not None and best > 1e29:
-        best = compute_tank_track_length(
-            pos3, dir3,
-            geometry.tank_radius, geometry.tank_z_min, geometry.tank_z_max,
-        )
-
-    if best > 1e29:
-        return 4.0
-    return max(best, 0.5)
+    t0 = float(muon_pos[3]) if len(muon_pos) > 3 else 0.0
+    return (
+        float(muon_pos[0]) + 1000.0 * distance * muon_dir[0],
+        float(muon_pos[1]) + 1000.0 * distance * muon_dir[1],
+        float(muon_pos[2]) + 1000.0 * distance * muon_dir[2],
+        t0 + distance / _MUON_SPEED_M_S,
+    )

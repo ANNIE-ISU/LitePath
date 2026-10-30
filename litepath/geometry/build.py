@@ -179,7 +179,8 @@ def build_surfboards(n: int, tank_z_min: float, tank_z_max: float) -> np.ndarray
 
     Surfboards are long rectangular PVC panels (2450×280×10 mm) mounted
     vertically on the octagonal columns at the forward-most vertices of
-    the tank.  They absorb photons and stop muon tracks.
+    the tank.  They absorb photons; they do not end muon tracks
+    (see sources/track.py).
 
     Parameters
     ----------
