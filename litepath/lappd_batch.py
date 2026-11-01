@@ -207,6 +207,22 @@ def _expand_hits(
 # Main entry point
 # ---------------------------------------------------------------------------
 
+def check_supported_optics(config: LAPPDBatchConfig) -> None:
+    """Raise ``ValueError`` if *config* asks for optics batch-lappd lacks.
+
+    Surface reflections and water attenuation are not implemented for the
+    standalone module; their settings must stay at 0.
+    """
+    requested = [name for name, value in (
+        ("--max-bounces", config.max_bounces),
+        ("--water-absorption-mm", config.water_absorption_mm),
+        ("--water-scattering-mm", config.water_scattering_mm),
+    ) if value != 0]
+    if requested:
+        raise ValueError(f"batch-lappd does not implement {', '.join(requested)} yet; "
+                         "leave them at 0")
+
+
 def run_lappd_batch(
     geometry: Geometry | None = None,
     config: LAPPDBatchConfig | None = None,
@@ -230,6 +246,7 @@ def run_lappd_batch(
     """
     if config is None:
         config = LAPPDBatchConfig()
+    check_supported_optics(config)
     if geometry is None:
         geometry = build_single_lappd_geometry((0, 0, 0), (0, 0, 1))
 

@@ -121,3 +121,27 @@ def test_batch_generates_light_only_inside_tank(full_geometry, tmp_path):
     assert truth.loc[0, "n_generated"] == (int(2 * R / 10) + 1) * 5
     assert truth.loc[1, "track_length_mm"] == 0.0
     assert truth.loc[1, "n_generated"] == 0
+
+
+def test_batch_lappd_reads_muon_file(tmp_path):
+    """--muon-file topologies reach batch-lappd (it imports batch's cache)."""
+    from litepath.batch import _load_muon_file
+    from litepath.lappd_batch import LAPPDBatchConfig, sample_source_state
+
+    muons = tmp_path / "muons.txt"
+    muons.write_text("1 2 300 0 0 0 -1\n4 5 400 0 0 0 -1\n")
+    _load_muon_file(muons)
+    config = LAPPDBatchConfig(sample_mode="fixed", muon_file=muons)
+    geo = build_single_lappd_geometry((0, 0, 0), (0, 0, 1))
+    rng = np.random.default_rng(0)
+    assert [sample_source_state(i, config, rng, geo)["pos"] for i in range(2)] == [
+        (1.0, 2.0, 300.0, 0.0), (4.0, 5.0, 400.0, 0.0)]
+
+
+@pytest.mark.parametrize("setting", [
+    {"max_bounces": 1}, {"water_absorption_mm": 1000.0}, {"water_scattering_mm": 1000.0},
+])
+def test_batch_lappd_rejects_unimplemented_optics(setting):
+    from litepath.lappd_batch import LAPPDBatchConfig, run_lappd_batch
+    with pytest.raises(ValueError, match="does not implement"):
+        run_lappd_batch(config=LAPPDBatchConfig(**setting))

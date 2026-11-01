@@ -218,11 +218,11 @@ def build_parser() -> argparse.ArgumentParser:
     lappd_batch.add_argument("--lappd-response", action="store_true",
                              help="Enable LAPPD digital readout pipeline")
     lappd_batch.add_argument("--max-bounces", type=int, default=0,
-                             help="Number of surface reflections per photon (0 = off)")
+                             help="Not implemented for batch-lappd yet; must be 0")
     lappd_batch.add_argument("--water-absorption-mm", type=float, default=0.0,
-                             help="Water absorption length in mm (0 = off)")
+                             help="Not implemented for batch-lappd yet; must be 0")
     lappd_batch.add_argument("--water-scattering-mm", type=float, default=0.0,
-                             help="Rayleigh scattering length in mm (0 = off)")
+                             help="Not implemented for batch-lappd yet; must be 0")
     lappd_batch.add_argument("--output-dir", "-o", type=Path, default=Path("results"),
                              help="Output directory (writes output.h5)")
     lappd_batch.add_argument("--no-record", action="store_true",
@@ -534,7 +534,7 @@ def benchmark_command(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 def lappd_batch_command(args: argparse.Namespace) -> None:
-    from litepath.lappd_batch import LAPPDBatchConfig, run_lappd_batch
+    from litepath.lappd_batch import LAPPDBatchConfig, check_supported_optics, run_lappd_batch
     from litepath.geometry.build import build_single_lappd_geometry
 
     # --events default: grid product, muon-file line count, or 100
@@ -588,6 +588,12 @@ def lappd_batch_command(args: argparse.Namespace) -> None:
         print(f"Error: muon file not found: {args.muon_file}")
         return
 
+    try:
+        check_supported_optics(config)
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        return
+
     geometry = build_single_lappd_geometry((0, 0, 0), (0, 0, 1))
 
     hd = geometry.lappd_housing_data[0]
@@ -608,16 +614,7 @@ def lappd_batch_command(args: argparse.Namespace) -> None:
         print("=" * 48)
         return
 
-    optics_cfg = None
-    from litepath.optics import load_optics_config, WaterAttenuation
-    water_cfg = WaterAttenuation(
-        absorption_length_mm=args.water_absorption_mm,
-        scattering_length_mm=args.water_scattering_mm,
-    )
-    if args.max_bounces > 0 or water_cfg.is_active:
-        optics_cfg = load_optics_config(None)
-
-    paths = run_lappd_batch(geometry, config, optics_config=optics_cfg)
+    paths = run_lappd_batch(geometry, config)
 
     # run_lappd_batch writes the 'detectors' table into the file itself.
     h5_path = args.output_dir / "output.h5"

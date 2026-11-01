@@ -130,9 +130,12 @@ _MUON_FILE_CACHE: list[tuple[float, float, float, float, float, float, float]] =
 
 
 def _load_muon_file(path: Path) -> list:
-    """Parse the topology file and populate the global cache."""
-    global _MUON_FILE_CACHE
-    _MUON_FILE_CACHE = []
+    """Parse the topology file and populate the global cache.
+
+    The cache is refilled in place, so modules that imported it (lappd_batch)
+    see the new contents.
+    """
+    _MUON_FILE_CACHE.clear()
     with open(path) as f:
         for line_no, line in enumerate(f):
             line = line.strip()

@@ -167,9 +167,9 @@ python -m litepath batch-lappd [flags]
 | `--intercept X Y Z` | — | Aim target (photocathode intercept point); overrides aiming at the PC centre and is recorded in the truth table |
 | `--wavelength` | 350.0 | Photon wavelength (nm) |
 | `--lappd-response` | false | Enable LAPPD digital readout pipeline (writes `lappd_readouts`) |
-| `--max-bounces` | 0 | Number of surface reflections per photon (0 = off) |
-| `--water-absorption-mm` | 0.0 | Water absorption length in mm (0 = off) |
-| `--water-scattering-mm` | 0.0 | Rayleigh scattering length in mm (0 = off) |
+| `--max-bounces` | 0 | Not implemented for `batch-lappd` yet; any other value is an error |
+| `--water-absorption-mm` | 0.0 | Not implemented for `batch-lappd` yet; any other value is an error |
+| `--water-scattering-mm` | 0.0 | Not implemented for `batch-lappd` yet; any other value is an error |
 | `--output-dir` / `-o` | `results/` | Output directory (writes `output.h5`) |
 | `--no-record` | false | Skip writing per-event output files |
 | `--seed` | None | Random seed |
