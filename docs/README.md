@@ -74,7 +74,7 @@ python -m litepath batch [flags]
 | `--gdml` | `PHASE2_INNER_STRUCTURE_closed.gdml` | GDML structure mesh |
 | `--step` | None | STEP CAD manifest (for LAPPD candidates) |
 | `--manifest` | None | Pre-cached component manifest JSON |
-| `--pmt-csv` | None | PMT position file (`PMTPositions_Scan.txt`) |
+| `--pmt-csv` | None | PMT table: `PMTPositions_Scan.txt` (WCSim scan file) or `geometry/base/FullTankPMTGeometry.csv` (ToolAnalysis, PMTs 453/455 corrected; see `geometry/base/SOURCES.md`) |
 | `--events` | 100 | Number of events to generate (default: line count of `--muon-file` if given, else 100) |
 | `--photons-per-cm` | 150 | Photons per cm along the muon track |
 | `--batch-size` | 50 | Events per GPU launch (higher = faster) |
@@ -567,6 +567,7 @@ path. Both are off by default (`0.0` = disabled).
 | File | Role |
 |------|------|
 | `cli.py` | CLI parser, all subcommands (`batch`, `batch-lappd`, `fit`, `viz-server`, etc.) |
+| `geometry/elements.py` | `PMTRecord` and readers for the ToolAnalysis PMT table and the WCSim scan file |
 | `geometry/build.py` | `Geometry` dataclass, `build_geometry()`, surfboards and housings, `build_single_lappd_geometry()` |
 | `engine/kernel.py` | Taichi ray-intersection functions and `trace_kernel` |
 | `engine/trace.py` | `trace_rays()`, `trace_with_optics()` (multi-bounce, water attenuation) |

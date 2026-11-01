@@ -190,14 +190,16 @@ def load_pmts(scan_path: Path, z_offset: float = 0.0,
               bottom_rotation_deg: float = 0.0,
               bottom_spin_deg: float = 0.0,
               det_rotation_deg: float = 22.5) -> dict:
-    """Parse WCSim scan file and return PMT data in structure rest frame.
+    """Read a PMT table and return PMT data in structure rest frame.
 
     Pipeline: scan (cm) → hall frame (mm) → structure rest frame.
     The hall→structure step applies Rx(-90°) (cylinder-axis alignment)
     then Rz(-157.5°) + (0,0,+1980) (undo WCSim placement).
 
     Args:
-        scan_path: Path to PMTPositions_Scan.txt.
+        scan_path: PMT table: a WCSim scan file (``PMTPositions_Scan.txt``)
+                   or a ToolAnalysis ``FullTankPMTGeometry.csv`` (see
+                   :mod:`litepath.geometry.elements`).
         z_offset: Additional vertical shift (mm) applied after the
                   standard transform.  Use this to fine-tune alignment.
         bottom_rotation_deg: Extra rotation about Z for panel-0 (bottom)
@@ -212,16 +214,17 @@ def load_pmts(scan_path: Path, z_offset: float = 0.0,
         radii: (N,) float32 — per-PMT radius in mm
         types: list of str — PMT type name per PMT
         directions: (N, 3) float32 — inward-pointing face normal (unit)
-        detector_nums: list of int — PMTID from scan file
+        detector_nums: list of int — channel key (= WCSim TubeID)
+        records: list of PMTRecord — the table rows (IDs, labels, status)
     """
-    data = np.loadtxt(scan_path, delimiter="\t")
-    # Columns: TubeID, panel_nr, scan_x, scan_y, scan_z, dirx, diry, dirz, pmt_type
-    tube_ids = data[:, 0].astype(int)
-    panel_nrs = data[:, 1].astype(int)
-    scan_xyz = data[:, 2:5]   # (N, 3) in cm
-    pmt_types_code = data[:, 8].astype(int)
+    from litepath.geometry.elements import read_pmt_table
 
-    n = len(data)
+    records = read_pmt_table(scan_path)
+    tube_ids = np.array([r.channel_key for r in records], dtype=int)
+    panel_nrs = np.array([r.panel for r in records], dtype=int)
+    scan_xyz = np.array([r.scan_position_cm for r in records], dtype=np.float64)  # cm
+
+    n = len(records)
     centers = np.zeros((n, 3), dtype=np.float32)
     radii = np.zeros(n, dtype=np.float32)
     directions = np.zeros((n, 3), dtype=np.float32)
@@ -236,8 +239,6 @@ def load_pmts(scan_path: Path, z_offset: float = 0.0,
 
     for i in range(n):
         sx, sy, sz = scan_xyz[i]
-        pn = panel_nrs[i]
-        pt = pmt_types_code[i]
 
         # Scan → WCBarrel (water tank) frame
         x_w, y_w, z_w = _scan_to_tank(sx, sy, sz)
@@ -255,8 +256,7 @@ def load_pmts(scan_path: Path, z_offset: float = 0.0,
             y_s = xs * _bsin + y_s * _bcos
 
         # PMT type
-        key = (pt, pn)
-        ptype = PMT_TYPE_NAMES.get(key, "Unknown")
+        ptype = records[i].pmt_type
         radius = PMT_RADII.get(ptype, 127.0)
 
         # Idealized inward-pointing direction
@@ -317,6 +317,7 @@ def load_pmts(scan_path: Path, z_offset: float = 0.0,
         "quaternions": quaternions,
         "instance_positions": instance_positions,
         "rotmats": rotmats,
+        "records": records,
     }
 
 
