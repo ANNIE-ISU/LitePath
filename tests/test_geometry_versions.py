@@ -127,3 +127,26 @@ def test_cli_switches_derive_from_a_version():
     assert not version.settings["pmt_meshes"] and not version.settings["structure_mesh"]
     assert version.settings["bottom_spin_deg"] == 22.5
     assert fingerprint(version) != fingerprint(load_version("annie-2026-data"))
+
+
+def test_cli_switches_keep_a_draft_editable():
+    from litepath.cli import build_parser, resolve_geometry
+    from litepath.geometry.versions import editable_overlay
+    version = resolve_geometry(build_parser().parse_args(
+        ["viz-server", "--geometry", "annie-2026-data-tuning", "--no-gdml"]))
+    assert version.status == "draft"
+    assert editable_overlay(version).name == "metrology-draft.yaml"
+    tagged = resolve_geometry(build_parser().parse_args(
+        ["viz-server", "--geometry", "annie-2026-data", "--no-gdml"]))
+    assert editable_overlay(tagged) is None
+
+
+def test_overlay_write_round_trip(tmp_path):
+    from litepath.geometry.versions import read_pmt_offsets, write_pmt_offsets
+    path = tmp_path / "o.yaml"
+    write_pmt_offsets(path, {401: (1.5, 0.0, -2.0), 402: (0.0, 0.0, 0.0)},
+                      header={"description": "test"})
+    assert read_pmt_offsets(path) == {401: (1.5, 0.0, -2.0)}
+    write_pmt_offsets(path, {401: (0.0, 0.0, 0.0)})
+    assert read_pmt_offsets(path) == {}
+    assert "description: test" in path.read_text()

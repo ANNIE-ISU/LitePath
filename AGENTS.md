@@ -172,7 +172,9 @@ Both `batch` and `batch-lappd` write the same HDF5 schema (v1):
 | `PHASE2_INNER_STRUCTURE_closed.gdml` | Primary GDML detector geometry mesh |
 | `PMTPositions_Scan.txt` | 132 PMT positions (TSV, 9 columns) |
 | `component_manifest.json` | Cached STEP parser output (PMT/LAPPD positions) |
-| `corrections.csv` | LAPPD correction data |
+| `corrections.csv` | Old viz-server PMT offsets; no longer read (now `geometry/overlays/metrology-draft.yaml`) |
+| `geometry/versions/*.yaml` | Named geometry versions (`--geometry NAME`) |
+| `geometry/base/FullTankPMTGeometry.csv` | ToolAnalysis PMT table (source in `geometry/base/SOURCES.md`) |
 | `MuonStartsAndDirecs.txt` | Muon start positions/directions |
 | `benchmarking_data/ANNIETree_ThroughgoingMuons.root` | WAGLE ANNIE data (10112 events, MRD reconstruction only) |
 | `benchmarking_data/MCTree_ThroughgoingMuons.root` | WAGLE Monte Carlo (1432 events, generator truth) |

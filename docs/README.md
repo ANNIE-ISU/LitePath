@@ -63,7 +63,7 @@ python -m litepath viz-server \
 ### Geometry versions and `geometry`
 
 Every full-detector command (`batch`, `fit`, `benchmark`,
-`build-detector-config`) builds its detector from a named **geometry
+`build-detector-config`, `viz-server`) builds its detector from a named **geometry
 version** chosen with `--geometry NAME` (default `annie-2022-scan`). A
 version is a YAML file in `geometry/versions/` naming the input files
 (PMT table, structure GDML), the build settings (rotations, LAPPD model,
@@ -99,7 +99,7 @@ The older geometry flags (`--gdml`, `--step`, `--manifest`, `--pmt-csv`,
 `--z-offset`) still work for now: they build an unnamed version and print a
 deprecation warning, naming the version that builds the same detector if
 there is one. They cannot be combined with `--geometry`, and will be
-removed in a later release. `viz-server` does not take `--geometry` yet.
+removed in a later release.
 
 ### `batch` — Batch-mode event generation
 
@@ -311,17 +311,19 @@ that fit residuals can be computed for validation.
 ### Other commands
 
 - **`viz-server`** — Interactive 3D viewer of the full detector (Three.js
-  frontend), served at `http://localhost:8080`.  Takes the same geometry
-  flags as `batch` (`--gdml`, `--pmt-csv`, `--no-gdml`, `--no-pmt-holders`,
-  `--no-lappd`, `--lappd-model`, `--surfboard`, `--z-offset`,
-  `--det-rotation`) plus:
+  frontend), served at `http://localhost:8080`.  Takes `--geometry` and
+  the `--no-*` switches like `batch`, plus `--host` (default `localhost`)
+  and `--port` (default 8080).  The older `--bottom-rot` and
+  `--bottom-spin` flags are deprecated with the other geometry flags.
 
-  | Flag | Default | Description |
-  |------|---------|-------------|
-  | `--host` | `localhost` | Host to bind |
-  | `--port` | 8080 | Port to bind |
-  | `--bottom-rot` | 45.0 | Extra Z-rotation (deg) for all PMTs, aligning the scan mesh with the structure |
-  | `--bottom-spin` | 22.5 | Per-PMT spin (deg) about the forward axis for bottom PMTs |
+  PMT position adjustments are saved to the geometry version's
+  `pmt-offsets` overlay, and only for a **draft** version: run
+  `viz-server --geometry annie-2026-data-tuning` to tune (adjustments go to
+  `geometry/overlays/metrology-draft.yaml`). For a tagged version the
+  adjust panel reports that the version is not editable. When tuning is
+  done, copy the draft to a new version file and tag it. `corrections.csv`
+  is no longer read; its contents became `metrology-draft.yaml`. LAPPD
+  position adjustments still use `litepath/lappd_corrections.csv`.
 
 - **`viz-lappd`** — Standalone LAPPD module viewer, served at
   `http://localhost:8081` (`--host`, `--port` as above).

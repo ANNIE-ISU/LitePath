@@ -193,6 +193,51 @@ def version_from_flags(values: dict) -> GeometryVersion:
 # Overlays
 # ---------------------------------------------------------------------------
 
+def _format_offset(value: float) -> str:
+    return "0" if abs(value) < 5e-7 else f"{value:.6f}".rstrip("0").rstrip(".")
+
+
+def write_pmt_offsets(path: Path, offsets: dict[int, tuple[float, float, float]],
+                      header: Optional[dict] = None) -> None:
+    """Write a ``pmt-offsets`` overlay: *header* fields, then one line per PMT.
+
+    *header* defaults to the existing file's fields other than ``offsets``.
+    Zero offsets are dropped.
+    """
+    if header is None:
+        with open(path) as f:
+            header = {k: v for k, v in (yaml.safe_load(f) or {}).items() if k != "offsets"}
+    header = {"kind": "pmt-offsets", **header}
+    lines = [yaml.safe_dump(header, sort_keys=False, width=88).rstrip(),
+             "offsets:   # channel key: [dx, dy, dz]"]
+    for key in sorted(offsets):
+        if any(abs(v) >= 5e-7 for v in offsets[key]):
+            lines.append(f"  {key}: [{', '.join(_format_offset(v) for v in offsets[key])}]")
+    if len(lines) == 2:
+        lines[-1] = "offsets: {}"
+    Path(path).write_text("\n".join(lines) + "\n")
+
+
+def read_pmt_offsets(path: Path) -> dict[int, tuple[float, float, float]]:
+    """Offsets of one ``pmt-offsets`` overlay file."""
+    return load_pmt_offsets([Path(path)])
+
+
+def editable_overlay(version: GeometryVersion) -> Optional[Path]:
+    """The overlay that PMT adjustments are saved to, or None if not editable.
+
+    Only draft versions are editable; the last ``pmt-offsets`` overlay
+    receives the changes.
+    """
+    if version.status != STATUS_DRAFT:
+        return None
+    for path in reversed(version.overlays):
+        with open(path) as f:
+            if (yaml.safe_load(f) or {}).get("kind") == "pmt-offsets":
+                return path
+    return None
+
+
 def load_pmt_offsets(overlays: list[Path]) -> dict[int, tuple[float, float, float]]:
     """Sum the ``pmt-offsets`` overlays into one offset (mm) per channel key."""
     total: dict[int, list[float]] = {}

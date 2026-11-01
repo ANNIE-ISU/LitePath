@@ -143,6 +143,12 @@ class Geometry:
     # ---- LAPPD correction state ----
     lappd_corrections_baked: np.ndarray | None = None  # (1,3) float32 — last-applied dx,dy,dz
 
+    # ---- Per-PMT data from pmt_loader.load_pmts (offsets applied) ----
+    # Types, directions, quaternions etc. for displays; None without a PMT
+    # table.  Its arrays are shared with the kernel arrays above, so copy it
+    # before changing anything in place.
+    pmt_info: Optional[dict] = None
+
 
 def reload_lappd_corrections(geo: Geometry):
     """Read lappd_corrections.csv and apply delta to housing/kernel data."""
@@ -660,6 +666,7 @@ def build_geometry(
         annie_lappd_data=annie_lappd_data,
         surfboard_data=surfboard_data,
         detectors=detectors,
+        pmt_info=pmt_data if pmt_csv_path and pmt_csv_path.exists() else None,
         pmt_body_tris=pmt_body_tris,
         pmt_body_mat_ids=pmt_body_mat_ids,
         pmt_body_offsets=pmt_body_offsets,

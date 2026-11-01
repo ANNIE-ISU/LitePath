@@ -15,7 +15,7 @@ from litepath.output import write_detector_config
 # geometry version and print a deprecation warning; --geometry replaces them.
 _GEOMETRY_FLAGS = (
     "gdml", "step", "manifest", "pmt_csv", "z_offset", "lappd_model", "det_rotation",
-    "surfboard", "lappd_indices",
+    "surfboard", "lappd_indices", "bottom_rot", "bottom_spin",
 )
 # Switches that drop parts of whichever version is used (for speed or
 # debugging).  Not deprecated; the result is an unnamed derived version.
@@ -47,7 +47,7 @@ def add_geometry_option(parser: argparse.ArgumentParser) -> None:
 def resolve_geometry(args: argparse.Namespace):
     """The GeometryVersion selected by --geometry or by the older flags."""
     from litepath.geometry.versions import (
-        DEFAULT_GEOMETRY, STATUS_UNNAMED, GeometryError, fingerprint, list_versions,
+        DEFAULT_GEOMETRY, STATUS_DRAFT, STATUS_UNNAMED, GeometryError, fingerprint, list_versions,
         load_version, version_from_flags,
     )
     defaults = args._geometry_defaults
@@ -72,7 +72,8 @@ def resolve_geometry(args: argparse.Namespace):
         for k in switches:
             version.settings[_GEOMETRY_SWITCHES[k]] = False
         version.name += "".join("+" + k.replace("_", "-") for k in switches)
-        version.status = STATUS_UNNAMED
+        if version.status != STATUS_DRAFT:  # a draft stays editable
+            version.status = STATUS_UNNAMED
         version.tagged = {}
     return version
 
@@ -143,7 +144,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Path to GDML geometry mesh (default: PHASE2_INNER_STRUCTURE_closed.gdml)")
     viz.add_argument("--step", type=Path, default=None, help="Path to STEP CAD file for component positions")
     viz.add_argument("--manifest", type=Path, default=None, help="Path to cached component manifest JSON")
-    viz.add_argument("--pmt-csv", type=Path, default=None, help="Path to PMT scan file")
+    viz.add_argument("--pmt-csv", type=Path, default=Path("PMTPositions_Scan.txt"),
+                     help="Path to PMT scan file")
     viz.add_argument("--host", type=str, default="localhost", help="Host to bind (default: localhost)")
     viz.add_argument("--port", type=int, default=8080, help="Port to bind (default: 8080)")
     viz.add_argument("--no-lappd", action="store_true", help="Skip LAPPD rectangles")
@@ -399,7 +401,7 @@ def build_parser() -> argparse.ArgumentParser:
     fit.add_argument("--polar", action="store_true",
                      help="Force polar projection (default: rectangular for zoomed-in, polar for full-sky)")
 
-    for geometry_parser in (detcfg, batch, fit, bench):
+    for geometry_parser in (detcfg, batch, fit, bench, viz):
         add_geometry_option(geometry_parser)
 
     return p

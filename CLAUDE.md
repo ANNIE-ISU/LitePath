@@ -62,6 +62,8 @@ changed before starting.
   Commands take `--geometry NAME`; the older geometry flags are deprecated
   (warning), `--no-gdml/--no-pmt-holders/--no-lappd` stay as switches.
   Tagged versions are frozen: never edit one, make a new version.
+  viz-server saves PMT adjustments to the draft's pmt-offsets overlay
+  (final structure frame); corrections.csv is no longer read.
   PMT IDs: ToolAnalysis channel key = detector key = WCSim TubeID (332–463)
 - Track length (`sources/track.py`, `track_length_mm`) is where light is
   generated: the part of the muon line inside the tank. It is a simulation

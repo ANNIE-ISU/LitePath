@@ -10,6 +10,7 @@ Usage:
 
 from __future__ import annotations
 
+import copy
 import csv
 import json
 import math
@@ -24,7 +25,8 @@ import numpy as np
 
 from litepath.pmt_loader import rotate_z
 from litepath.pmt_mesh import build_viz_caches
-from litepath.geometry.build import build_geometry, reload_lappd_corrections
+from litepath.geometry.build import reload_lappd_corrections
+from litepath.geometry.versions import editable_overlay, read_pmt_offsets, write_pmt_offsets
 from litepath.simulate import trace_muon_light
 from litepath.hits import HI, HCID, HX, HZ, H_SOURCE, SOURCE_CKV, SOURCE_SCI
 
@@ -77,8 +79,9 @@ def _load_scan_mesh(name: str, det_rotation_deg: float = 0.0):
 class VizHandler(BaseHTTPRequestHandler):
     _pmt_types: list[str] = []
     _pmt_data = None
-    _corrections: dict[int, tuple[float, float, float]] = {}
-    _corr_path: Path | None = None
+    _corrections: dict[int, tuple[float, float, float]] = {}  # total offset per PMT (mm)
+    _overlay_path: Path | None = None      # draft overlay that adjustments are saved to
+    _geometry_name: str = ""
     _lappd_corr_path: str | None = None
 
     def log_message(self, fmt, *args):
@@ -161,6 +164,12 @@ class VizHandler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def _save_correction(self, data):
+        if self._overlay_path is None:
+            self._send_json({"error": (
+                f"geometry '{self._geometry_name}' is not editable; start the viz server "
+                "with --geometry annie-2026-data-tuning (or another draft version) to "
+                "adjust PMT positions")}, 400)
+            return
         tube_id = int(data["tube_id"])
         axial = float(data["axial"])
         tangential = float(data["tangential"])
@@ -189,31 +198,15 @@ class VizHandler(BaseHTTPRequestHandler):
             dy = axial * e_axial[1] + tangential * e_tangential[1] + vertical * e_vertical[1]
             dz = axial * e_axial[2] + tangential * e_tangential[2] + vertical * e_vertical[2]
 
-        # Read current file
-        corrections = {}
-        corr_path = self._corr_path
-        if corr_path and corr_path.exists():
-            with open(corr_path, newline="") as f:
-                for row in csv.DictReader(f):
-                    corrections[int(row["tube_id"])] = (
-                        float(row.get("dx", 0)),
-                        float(row.get("dy", 0)),
-                        float(row.get("dz", 0)),
-                    )
-
-        old = corrections.get(tube_id, (0.0, 0.0, 0.0))
-
-        # Update in-memory
-        corrections[tube_id] = (dx, dy, dz)
+        # (dx, dy, dz) is the new total offset, in the final structure frame.
+        # Other overlays of the version may contribute too, so the editable
+        # overlay gets the change in the total.
+        old = self._corrections.get(tube_id, (0.0, 0.0, 0.0))
+        file_offsets = read_pmt_offsets(self._overlay_path)
+        in_file = file_offsets.get(tube_id, (0.0, 0.0, 0.0))
+        file_offsets[tube_id] = tuple(f + n - o for f, n, o in zip(in_file, (dx, dy, dz), old))
+        write_pmt_offsets(self._overlay_path, file_offsets)
         self._corrections[tube_id] = (dx, dy, dz)
-
-        # Write back
-        with open(corr_path, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(["tube_id", "dx", "dy", "dz"])
-            for tid in sorted(corrections):
-                cx, cy, cz = corrections[tid]
-                writer.writerow([tid, cx, cy, cz])
 
         # Apply delta to instance_positions
         positions = self._pmt_data["instance_positions"]
@@ -222,9 +215,10 @@ class VizHandler(BaseHTTPRequestHandler):
         positions[idx, 2] += dz - old[2]
 
         # Apply same delta to kernel geometry so mesh refinement finds corrected positions
-        geometry.pmt_instance_pos[idx, 0] += dx - old[0]
-        geometry.pmt_instance_pos[idx, 1] += dy - old[1]
-        geometry.pmt_instance_pos[idx, 2] += dz - old[2]
+        if idx < geometry.pmt_instance_pos.shape[0]:  # empty with --no-pmt-holders
+            geometry.pmt_instance_pos[idx, 0] += dx - old[0]
+            geometry.pmt_instance_pos[idx, 1] += dy - old[1]
+            geometry.pmt_instance_pos[idx, 2] += dz - old[2]
         geometry.pmt_centers[idx, 0] += dx - old[0]
         geometry.pmt_centers[idx, 1] += dy - old[1]
         geometry.pmt_centers[idx, 2] += dz - old[2]
@@ -2661,90 +2655,39 @@ def run_server(args):
 
     ti.init(arch=ti.cpu, default_fp=ti.f32)
 
-    pmt_csv = args.pmt_csv
-    if pmt_csv is None:
-        pmt_csv = Path("PMTPositions_Scan.txt")
-    else:
-        pmt_csv = Path(pmt_csv)
+    from litepath.cli import load_geometry_build
 
-    gdml_path = Path(args.gdml)
-    step_path = Path(args.step) if args.step else None
-    manifest_path = Path(args.manifest) if args.manifest else None
-
-    print(f"Loading geometry from {gdml_path}...")
-    geometry = build_geometry(
-        gdml_path,
-        step_path=step_path,
-        manifest_path=manifest_path,
-        pmt_csv_path=pmt_csv,
-        no_lappd=args.no_lappd,
-        no_gdml=args.no_gdml,
-        no_pmt_holders=args.no_pmt_holders,
-        z_offset=args.z_offset,
-        lappd_model=args.lappd_model,
-        bottom_rotation_deg=args.bottom_rot,
-        bottom_spin_deg=args.bottom_spin,
-        det_rotation_deg=args.det_rotation,
-        n_surfboards=args.surfboard if hasattr(args, 'surfboard') else 0,
-    )
+    build = load_geometry_build(args)
+    if build is None:
+        return
+    geometry = build.geometry
+    det_rotation = build.version.settings["det_rotation_deg"]
     print(f"  Mesh: {geometry.mesh_vertices.shape[0]} verts, {geometry.mesh_triangles.shape[0]} tris")
     print(f"  PMTs: {geometry.pmt_centers.shape[0]}")
+    if geometry.pmt_info is None:
+        print("Error: the viz server needs a geometry with a PMT table")
+        return
 
-    from litepath.pmt_loader import load_pmts
-    pmt_info = load_pmts(pmt_csv, z_offset=args.z_offset,
-                         bottom_rotation_deg=args.bottom_rot,
-                         bottom_spin_deg=args.bottom_spin,
-                         det_rotation_deg=args.det_rotation)
+    # Own copy: adjustments update these and the kernel arrays separately.
+    pmt_info = copy.deepcopy(geometry.pmt_info)
     VizHandler._pmt_types = pmt_info["types"]
     VizHandler._pmt_data = pmt_info
     pmt_instance_data = pmt_info
 
-    # ---- Apply corrections to simulated PMT positions ----
-    _corr_path = Path(__file__).resolve().parent.parent / "corrections.csv"
-    VizHandler._corr_path = _corr_path
+    # PMT offsets come from the geometry version's overlays (already applied).
+    VizHandler._corrections = dict(build.pmt_offsets)
+    VizHandler._geometry_name = build.version.name
+    VizHandler._overlay_path = editable_overlay(build.version)
     VizHandler._lappd_corr_path = str(Path(__file__).resolve().parent / "lappd_corrections.csv")
-    _corrections: dict[int, tuple[float, float, float]] = {}
-    if _corr_path.exists():
-        with open(_corr_path, newline="") as _f:
-            for _row in csv.DictReader(_f):
-                _tid = int(_row["tube_id"])
-                _dx = float(_row.get("dx", 0))
-                _dy = float(_row.get("dy", 0))
-                _dz = float(_row.get("dz", 0))
-                _corrections[_tid] = (_dx, _dy, _dz)
-        print(f"  Corrections: {len(_corrections)} loaded")
-        _dets = pmt_instance_data["detector_nums"]
-        _dirs = pmt_instance_data["directions"]
-        _positions = pmt_instance_data["instance_positions"]
-        _applied = 0
-        _cr = args.det_rotation
-        for _i, _tid in enumerate(_dets):
-            if _tid in _corrections:
-                _dx, _dy, _dz = _corrections[_tid]
-                if _cr != 0.0:
-                    _th = math.radians(_cr)
-                    _c = math.cos(_th)
-                    _s = math.sin(_th)
-                    _dx, _dy = _dx * _c - _dy * _s, _dx * _s + _dy * _c
-                _positions[_i, 0] += _dx
-                _positions[_i, 1] += _dy
-                _positions[_i, 2] += _dz
-                # Apply same delta to kernel geometry (mesh refinement + sphere fallback)
-                geometry.pmt_instance_pos[_i, 0] += _dx
-                geometry.pmt_instance_pos[_i, 1] += _dy
-                geometry.pmt_instance_pos[_i, 2] += _dz
-                geometry.pmt_centers[_i, 0] += _dx
-                geometry.pmt_centers[_i, 1] += _dy
-                geometry.pmt_centers[_i, 2] += _dz
-                _applied += 1
-        print(f"  Corrections applied to {_applied} PMT instance positions")
+    print(f"  PMT offsets: {len(build.pmt_offsets)} from the geometry version")
+    if VizHandler._overlay_path is not None:
+        print(f"  PMT adjustments are saved to {VizHandler._overlay_path}")
     else:
-        print("  No corrections.csv found — simulated detector uncorrected")
-    VizHandler._corrections = _corrections
+        print(f"  PMT adjustments are disabled: '{build.version.name}' is not a draft version")
 
     # Load scan mesh overlays
     print("Loading scan overlays...")
-    _det_rot = args.det_rotation
+    _det_rot = det_rotation
     for _sn in [
         "AllPMTs", "SuperStructure", "BottomLayer", "TopLayer",
         "Panel-1", "Panel-2", "Panel-3", "Panel-4", "Panel-5", "Panel-6", "Panel-7", "Panel-8",
@@ -2761,7 +2704,7 @@ def run_server(args):
     _tips_path = SCAN_MESH_DIR / "pmt_tip_positions.csv"
     if _tips_path.exists():
         tips = []
-        _tip_rot = args.det_rotation
+        _tip_rot = det_rotation
         with open(_tips_path, newline="") as f:
             reader = csv.DictReader(f)
             for row in reader:
