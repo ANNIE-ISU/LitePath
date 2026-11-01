@@ -2,7 +2,8 @@
 
 The track length is a simulation cutoff, not a physical range: surfboards
 and LAPPD housings must not end it, and it must not extend past the tank
-wall.  The standalone LAPPD geometry keeps its housing-based length.
+wall.  In the standalone LAPPD geometry light stops once the muon is behind
+the housing's back face, or at the world boundary if it never gets there.
 """
 
 import math
@@ -12,9 +13,8 @@ import numpy as np
 import pytest
 
 from litepath.geometry.build import build_geometry, build_single_lappd_geometry
-from litepath.lappd_model import compute_housing_track_length
 from litepath.sources.track import (
-    _housing_from_array, advance_muon, compute_track_length, light_segment,
+    STANDALONE_MAX_TRACK_M, advance_muon, compute_track_length, light_segment,
 )
 
 R, Z_MIN, Z_MAX = 1524.0, 19.0, 3861.0
@@ -63,12 +63,36 @@ def test_muon_that_never_enters_tank_has_no_light(full_geometry, pos, direction)
     assert light_segment(pos, direction, full_geometry) == (0.0, 0.0)
 
 
-def test_standalone_lappd_keeps_housing_length():
+@pytest.fixture(scope="module")
+def lappd_geometry():
+    """Standalone module at the origin, front face +z, back face at z = -30 mm."""
     geo = build_single_lappd_geometry((0, 0, 0), (0, 0, 1))
-    housing = _housing_from_array(geo.lappd_housing_data[0])
-    pos, direction = (10.0, -20.0, 300.0), (0.0, 0.0, -1.0)
-    assert light_segment(pos, direction, geo) == (
-        0.0, compute_housing_track_length(pos, direction, housing))
+    hd = geo.lappd_housing_data[0]
+    assert tuple(hd[9:12]) == (0, 0, 1) and hd[2] - hd[14] == -30.0
+    return geo
+
+
+@pytest.mark.parametrize("pos, direction, expected_m", [
+    ((10.0, -20.0, 300.0), (0.0, 0.0, -1.0), 0.330),                  # through the module
+    ((500.0, 0.0, 300.0), (0.0, 0.0, -1.0), 0.330),                   # beside it: same plane
+    ((0.0, 0.0, 300.0), (math.sqrt(0.5), 0.0, -math.sqrt(0.5)), 0.330 * math.sqrt(2)),
+    ((0.0, 0.0, 300.0), (0.0, 0.0, 1.0), STANDALONE_MAX_TRACK_M),     # heading away
+    ((0.0, 0.0, 300.0), (1.0, 0.0, 0.0), STANDALONE_MAX_TRACK_M),     # parallel to the plane
+    ((0.0, 0.0, 9000.0), (0.0, 0.0, -1.0), STANDALONE_MAX_TRACK_M),   # plane beyond the boundary
+    ((0.0, 0.0, -100.0), (0.0, 0.0, -1.0), 0.0),                      # starts behind
+    ((0.0, 0.0, -100.0), (0.0, 0.0, 1.0), 0.0),                       # starts behind, heading in
+])
+def test_standalone_lappd_stops_at_back_plane(lappd_geometry, pos, direction, expected_m):
+    assert light_segment(pos, direction, lappd_geometry) == (0.0, pytest.approx(expected_m))
+
+
+def test_standalone_world_boundary_is_settable(lappd_geometry):
+    assert compute_track_length((0, 0, 300), (0, 0, 1), lappd_geometry, 1.5) == 1.5
+    assert compute_track_length((0, 0, 300), (0, 0, -1), lappd_geometry, 0.1) == 0.1
+
+
+def test_tank_ignores_world_boundary(full_geometry):
+    assert light_segment((0, 0, 1940), (1, 0, 0), full_geometry, 0.1) == (0.0, pytest.approx(R / 1000))
 
 
 def test_advance_muon_moves_start_and_time():

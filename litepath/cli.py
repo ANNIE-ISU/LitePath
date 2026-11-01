@@ -198,6 +198,10 @@ def build_parser() -> argparse.ArgumentParser:
                              help="Fixed source: 'x y z t0 dx dy dz' (7 floats)")
     lappd_batch.add_argument("--muon-file", type=Path, default=None,
                              help="File with one topology per line: 'x y z t0 dx dy dz'")
+    lappd_batch.add_argument("--max-track-length", type=float, default=4.0,
+                             help="World boundary (m): light stops this far from the "
+                                  "muon start if it never passes behind the module "
+                                  "(default: 4.0)")
     lappd_batch.add_argument("--photons-per-cm", type=int, default=150,
                              help="Cherenkov photons per cm along the muon track")
     lappd_batch.add_argument("--n-photons", type=int, default=5000,
@@ -570,6 +574,7 @@ def lappd_batch_command(args: argparse.Namespace) -> None:
         muon_fixed=muon_fixed,
         muon_file=args.muon_file,
         grid_steps=(nx, nz),
+        max_track_length_m=args.max_track_length,
         lappd_response=args.lappd_response,
         max_bounces=args.max_bounces,
         water_absorption_mm=args.water_absorption_mm,

@@ -140,8 +140,11 @@ unchanged.
 
 Two light sources, matching `viz-lappd`:
 
-* `--source cherenkov` — a tracked muon; Cherenkov photons along a chord
-  of the housing box. Sampled with `--sample-mode random|grid|fixed`.
+* `--source cherenkov` — a tracked muon in water; Cherenkov photons from
+  the muon's start until it passes behind the plane of the housing's back
+  face (light emitted there cannot reach the forward-facing photocathode).
+  A muon that never gets behind the module stops at `--max-track-length`.
+  Sampled with `--sample-mode random|grid|fixed`.
 * `--source spot` — a directed diverging beam from a point, optionally
   aimed at a specific photocathode point via `--intercept x y z`.
 
@@ -158,6 +161,7 @@ python -m litepath batch-lappd [flags]
 | `--muon-fixed` | — | Fixed source: `"x y z t0 dx dy dz"` (7 floats) |
 | `--muon-file` | — | File with one `x y z t0 dx dy dz` topology per line |
 | `--photons-per-cm` | 150 | Cherenkov photons per cm along the muon track |
+| `--max-track-length` | 4.0 | World boundary (m): where light stops for a muon that never passes behind the module |
 | `--n-photons` | 5000 | Photons in the `spot` beam |
 | `--spread-deg` | 2.0 | Angular spread (deg) of the launched source |
 | `--intercept X Y Z` | — | Aim target (photocathode intercept point); overrides aiming at the PC centre and is recorded in the truth table |
@@ -566,7 +570,7 @@ path. Both are off by default (`0.0` = disabled).
 | `geometry/build.py` | `Geometry` dataclass, `build_geometry()`, surfboards and housings, `build_single_lappd_geometry()` |
 | `engine/kernel.py` | Taichi ray-intersection functions and `trace_kernel` |
 | `engine/trace.py` | `trace_rays()`, `trace_with_optics()` (multi-bounce, water attenuation) |
-| `sources/track.py` | Where along a muon track light is generated: the part inside the tank (housing box for standalone LAPPD) |
+| `sources/track.py` | Where along a muon track light is generated: the part inside the tank (in front of the housing's back face for standalone LAPPD) |
 | `simulate.py` | `trace_muon_light()` / `trace_cherenkov()`: generate muon light and trace it |
 | `hits.py` | Hit-array column indices, component IDs, detector-system and photon-source codes |
 | `tracer.py` | Compatibility module: re-exports the names above for older scripts |

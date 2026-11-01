@@ -42,7 +42,7 @@ from litepath.hits import (
 from litepath.optics import C_MM_NS, N_WATER_DEFAULT
 from litepath.geometry.build import Geometry, build_single_lappd_geometry
 from litepath.engine.trace import trace_rays
-from litepath.sources.track import compute_track_length
+from litepath.sources.track import STANDALONE_MAX_TRACK_M, compute_track_length
 
 
 # Default upstream launch band when sampling muon vertices in front of the
@@ -68,6 +68,7 @@ class LAPPDBatchConfig:
     muon_fixed: Optional[tuple] = None
     muon_file: Optional[Path] = None
     grid_steps: tuple[int, int] = (9, 5)   # (n_x, n_z) for "grid"
+    max_track_length_m: float = STANDALONE_MAX_TRACK_M  # world boundary
 
     # Response + optics
     lappd_response: bool = True
@@ -255,11 +256,17 @@ def run_lappd_batch(
             n_ckv = len(origins)
             n_sci = 0
         else:
-            track_length = compute_track_length(state["pos"], state["dir"], geometry)
-            origins, dirs, ctimes = generate_cherenkov_photons(
-                state["pos"], state["dir"], config.photons_per_cm,
-                track_length=track_length, rng=rng,
-            )
+            track_length = compute_track_length(state["pos"], state["dir"], geometry,
+                                                config.max_track_length_m)
+            if track_length > 0.0:
+                origins, dirs, ctimes = generate_cherenkov_photons(
+                    state["pos"], state["dir"], config.photons_per_cm,
+                    track_length=track_length, rng=rng,
+                )
+            else:  # starts behind the module
+                origins = np.zeros((0, 3), dtype=np.float32)
+                dirs = np.zeros((0, 3), dtype=np.float32)
+                ctimes = np.zeros(0, dtype=np.float32)
             n_ckv = len(origins)
             n_sci = 0
 

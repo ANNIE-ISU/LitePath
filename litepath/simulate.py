@@ -76,7 +76,6 @@ def trace_muon_light(
         17: photon_source (0=Cherenkov, 1=scintillation)
     """
     from litepath.cherenkov import generate_cherenkov_photons
-    from litepath.lappd_model import compute_housing_track_length
     from litepath.optics import load_optics_config
     from litepath.scintillation import generate_scintillation_photons
 

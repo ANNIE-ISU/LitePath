@@ -81,9 +81,14 @@ def _trace_cherenkov_on_lappd(
 ) -> dict:
     """Generate and trace Cherenkov photons against the single LAPPD housing."""
     track_length = compute_track_length(muon_pos, muon_dir, _geometry)
-    origins, directions, create_times = generate_cherenkov_photons(
-        muon_pos, muon_dir, photons_per_cm, track_length=track_length, rng=rng,
-    )
+    if track_length > 0.0:
+        origins, directions, create_times = generate_cherenkov_photons(
+            muon_pos, muon_dir, photons_per_cm, track_length=track_length, rng=rng,
+        )
+    else:  # starts behind the module
+        origins = np.zeros((0, 3), dtype=np.float32)
+        directions = np.zeros((0, 3), dtype=np.float32)
+        create_times = np.zeros(0, dtype=np.float32)
     n_total = origins.shape[0]
 
     hits_array = trace_rays(origins, directions, _geometry)

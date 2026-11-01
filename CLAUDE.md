@@ -60,7 +60,8 @@ changed before starting.
   generated: the part of the muon line inside the tank. It is a simulation
   cutoff, NOT a physical range. Muons do not "stop" at the tank wall,
   surfboards or housings, which only block photons (future MRD work relies on
-  this). `batch-lappd` (no tank) uses the housing-box exit instead. Renaming
+  this). `batch-lappd` (no tank, always in water) stops light once the muon is
+  behind the housing's back-face plane, or at `--max-track-length` (4 m). Renaming
   the column and storing entry/exit points is planned with the step-3 schema change
 - phi convention: truth `phi_deg` stored in `[0, 360)` to match the fit grid
   (BUG-5, #6); files written before the fix hold `[−180, 180]` and

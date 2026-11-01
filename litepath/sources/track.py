@@ -6,8 +6,11 @@ range: the muon itself carries on past the tank wall (e.g. into the MRD),
 and nothing here models a muon stopping.  Surfboards and LAPPD housings
 block photons in the ray tracer but do not end the track.
 
-The standalone LAPPD geometry (``batch-lappd``, ``viz-lappd``) has no tank;
-there the track ends where the muon leaves the LAPPD housing box.
+The standalone LAPPD geometry (``batch-lappd``, ``viz-lappd``) has no tank.
+There the module sits in water and light stops once the muon is behind the
+plane of the housing's back face: the photocathode faces forward, so light
+emitted behind that plane cannot reach it.  A muon that never gets behind
+the module stops at a world boundary, ``max_length_m`` from its start.
 """
 
 import math
@@ -18,6 +21,9 @@ from litepath.geometry.build import Geometry
 
 # Muon speed used by the photon generators (cherenkov.py, scintillation.py).
 _MUON_SPEED_M_S = 0.999999 * 299792458.0
+
+# World boundary (m) for tracks with no tank, as a length from the muon's start.
+STANDALONE_MAX_TRACK_M = 4.0
 
 
 def _housing_from_array(arr: np.ndarray):
@@ -81,40 +87,69 @@ def tank_light_segment(
     return lo / 1000.0, (hi - lo) / 1000.0
 
 
+def housing_light_length(
+    muon_pos: tuple[float, ...],
+    muon_dir: tuple[float, float, float],
+    housing_row: np.ndarray,
+    max_length_m: float = STANDALONE_MAX_TRACK_M,
+) -> float:
+    """Length (m) of track in front of a housing's back-face plane.
+
+    *housing_row* is a (16,) housing array (centre, local X/Y/Z axes,
+    half-extents); local Z is the front-face normal.  Returns 0 if the muon
+    starts behind the plane, and at most *max_length_m*.
+    """
+    centre = np.asarray(housing_row[0:3], dtype=np.float64)
+    normal = np.asarray(housing_row[9:12], dtype=np.float64)
+    half_z = float(housing_row[14])
+
+    # Distance (mm) in front of the back-face plane, and its rate along the track
+    ahead = float(np.dot(np.asarray(muon_pos[:3], dtype=np.float64) - centre, normal)) + half_z
+    rate = float(np.dot(np.asarray(muon_dir[:3], dtype=np.float64), normal))
+    if ahead <= 0.0:
+        return 0.0
+    if rate < 0.0:
+        return min(ahead / -rate / 1000.0, max_length_m)
+    return max_length_m
+
+
 def light_segment(
     muon_pos: tuple[float, ...],
     muon_dir: tuple[float, float, float],
     geometry: Geometry | None,
+    max_length_m: float = STANDALONE_MAX_TRACK_M,
 ) -> tuple[float, float]:
     """``(start, length)`` in metres of the stretch of track that emits light.
 
     Full detector: the part inside the tank (:func:`tank_light_segment`).
-    Standalone LAPPD geometry (no tank): from the muon's start to where it
-    leaves the LAPPD housing box.  No geometry: 4.0 m from the start.
+    Standalone LAPPD geometry (no tank): from the muon's start until it is
+    behind the housing's back face (:func:`housing_light_length`).
+    No geometry: *max_length_m* from the start.  *max_length_m* is the world
+    boundary for geometries without a tank and is ignored in the full detector.
     """
     if geometry is not None and geometry.tank_radius > 0.0:
         return tank_light_segment(muon_pos, muon_dir, geometry.tank_radius,
                                   geometry.tank_z_min, geometry.tank_z_max)
 
     if geometry is not None and geometry.lappd_housing_data.shape[0] > 0:
-        from litepath.lappd_model import compute_housing_track_length
-        housing = _housing_from_array(geometry.lappd_housing_data[0])
-        return 0.0, compute_housing_track_length(muon_pos[:3], muon_dir[:3], housing)
+        return 0.0, housing_light_length(muon_pos, muon_dir,
+                                         geometry.lappd_housing_data[0], max_length_m)
 
-    return 0.0, 4.0
+    return 0.0, max_length_m
 
 
 def compute_track_length(
     muon_pos: tuple[float, ...],
     muon_dir: tuple[float, float, float],
     geometry: Geometry | None,
+    max_length_m: float = STANDALONE_MAX_TRACK_M,
 ) -> float:
     """Length (m) of the track over which light is generated.
 
     See :func:`light_segment`.  In the full detector this is the length
     inside the tank, not a physical muon range.
     """
-    return light_segment(muon_pos, muon_dir, geometry)[1]
+    return light_segment(muon_pos, muon_dir, geometry, max_length_m)[1]
 
 
 def compute_tank_track_length(
