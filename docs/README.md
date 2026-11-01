@@ -21,18 +21,18 @@ with on-the-fly raytracing per hypothesis.
 ```bash
 # Batch-mode simulation (Cherenkov)
 python -m litepath batch \
-    --pmt-csv PMTPositions_Scan.txt \
+    --geometry annie-2022-scan \
     --events 100 --photons-per-cm 150
 
 # Batch-mode simulation with wbLS scintillation (adds to Cherenkov)
 python -m litepath batch \
-    --pmt-csv PMTPositions_Scan.txt \
+    --geometry annie-2022-scan \
     --events 100 --photons-per-cm 150 \
     --scintillation --photons-per-cm-scint 100
 
 # Scintillation-only batch (Cherenkov off)
 python -m litepath batch \
-    --pmt-csv PMTPositions_Scan.txt \
+    --geometry annie-2022-scan \
     --events 100 --photons-per-cm 0 \
     --scintillation --photons-per-cm-scint 100
 
@@ -60,6 +60,47 @@ python -m litepath viz-server \
 
 ## CLI Commands
 
+### Geometry versions and `geometry`
+
+Every full-detector command (`batch`, `fit`, `benchmark`,
+`build-detector-config`) builds its detector from a named **geometry
+version** chosen with `--geometry NAME` (default `annie-2022-scan`). A
+version is a YAML file in `geometry/versions/` naming the input files
+(PMT table, structure GDML), the build settings (rotations, LAPPD model,
+surfboards, …) and any overlays, such as per-PMT position offsets in
+`geometry/overlays/`. `--geometry` also takes a path to a version file.
+
+| Version | Status | What it is |
+|---------|--------|------------|
+| `annie-2022-scan` | tagged | The detector LitePath simulated up to 2026-11: 2022 scan positions (PMTs 453/455 swapped), bottom-PMT spin 0°, 3 surfboards |
+| `annie-2026-data` | tagged | For comparison with data: ToolAnalysis PMT table (453/455 corrected), bottom-PMT spin 22.5°, 3 surfboards |
+| `annie-2026-data-tuning` | draft | `annie-2026-data` plus the unfinished `corrections.csv` offsets |
+
+A **tagged** version is frozen: tagging records the hashes of all its input
+files and its fingerprint, and a build refuses to run if anything changed.
+To change a tagged geometry, make a new version. A **draft** can change;
+runs on it print a warning. The **fingerprint** is a SHA-256 over the
+settings, the PMT offsets and the contents of every input file (including
+the PMT meshes), so equal fingerprints mean the same detector.
+
+```
+python -m litepath geometry list          # name, status, fingerprint, description
+python -m litepath geometry show NAME     # inputs, settings, file hashes
+python -m litepath geometry tag NAME      # freeze a draft
+```
+
+`--no-gdml`, `--no-pmt-holders` and `--no-lappd` drop the structure mesh,
+the PMT body/holder meshes or the LAPPDs from whichever version is used
+(for speed or debugging). The result is an unnamed version such as
+`annie-2026-data+no-pmt-holders`, with its own fingerprint.
+
+The older geometry flags (`--gdml`, `--step`, `--manifest`, `--pmt-csv`,
+`--surfboard`, `--lappd-model`, `--lappd-indices`, `--det-rotation`,
+`--z-offset`) still work for now: they build an unnamed version and print a
+deprecation warning, naming the version that builds the same detector if
+there is one. They cannot be combined with `--geometry`, and will be
+removed in a later release. `viz-server` does not take `--geometry` yet.
+
 ### `batch` — Batch-mode event generation
 
 Runs N events on the GPU, writing results to a single HDF5 file. No
@@ -71,24 +112,14 @@ python -m litepath batch [flags]
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--gdml` | `PHASE2_INNER_STRUCTURE_closed.gdml` | GDML structure mesh |
-| `--step` | None | STEP CAD manifest (for LAPPD candidates) |
-| `--manifest` | None | Pre-cached component manifest JSON |
-| `--pmt-csv` | None | PMT table: `PMTPositions_Scan.txt` (WCSim scan file) or `geometry/base/FullTankPMTGeometry.csv` (ToolAnalysis, PMTs 453/455 corrected; see `geometry/base/SOURCES.md`) |
+| `--geometry` | `annie-2022-scan` | Geometry version name or file (see above); the older geometry flags are deprecated |
 | `--events` | 100 | Number of events to generate (default: line count of `--muon-file` if given, else 100) |
 | `--photons-per-cm` | 150 | Photons per cm along the muon track |
 | `--batch-size` | 50 | Events per GPU launch (higher = faster) |
 | `--muon-fixed` | None | Fixed muon topology: `"x y z t0 dx dy dz"` (7 floats) |
 | `--muon-file` | None | File with one topology per line |
 | `--muon-mode` | `isotropic` | Random muon directions when neither `--muon-fixed` nor `--muon-file` is given: `isotropic` (uniform on the sphere), `downward` (mostly −z, atmospheric), `beam` (forward along +y) |
-| `--surfboard` | 0 | PVC surfboard panels (`0`, `1`, or `3`) |
-| `--lappd-model` | `annie` | LAPPD geometry (`default` / `annie`) |
-| `--lappd-indices` | None | Comma-separated LAPPD candidate indices from STEP |
-| `--det-rotation` | 22.5 | Global Z-rotation (deg) |
-| `--z-offset` | 0.0 | Vertical offset (mm) |
-| `--no-lappd` | false | Skip LAPPD rectangles |
-| `--no-gdml` | false | Skip inner structure GDML mesh (tank + PMTs only) |
-| `--no-pmt-holders` | false | Skip PMT body and hardware holder meshes (PMT positions still loaded) |
+| `--no-gdml` / `--no-pmt-holders` / `--no-lappd` | false | Drop the structure mesh, PMT body/holder meshes or LAPPDs from the chosen version |
 | `--max-bounces` | 0 | Multi-bounce optics |
 | `--pmt-response` | false | Enable PMT digital model (SPE charge + TTS) |
 | `--full-wf` | false | Full waveform path (requires `--pmt-response`) |
@@ -188,8 +219,7 @@ python -m litepath fit output.h5 [--event 0] [flags]
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--gdml` | `PHASE2_INNER_STRUCTURE_closed.gdml` | Geometry mesh |
-| `--pmt-csv` | No default | PMT position file |
+| `--geometry` | `annie-2022-scan` | Geometry version; use the one the events were simulated with |
 | `--event` | 0 | Event ID to fit |
 | `--grid-theta` | `"0 180 19"` | θ grid: `"start stop steps"` (deg) |
 | `--grid-phi` | `"0 360 37"` | φ grid: `"start stop steps"` (deg) |
@@ -206,8 +236,6 @@ python -m litepath fit output.h5 [--event 0] [flags]
 | `--save-grid` | None | Save likelihood surface to NPZ |
 | `--show` | false | Show plot (auto: rectangular for zoom, polar for full-sky) |
 | `--polar` | false | Force polar projection |
-| `--no-gdml` | false | Skip inner structure GDML mesh |
-| `--no-pmt-holders` | false | Skip PMT body and hardware holder meshes |
 
 **Plot type auto-detection:**
 - Full-sky grid (θ span > 170°, φ span > 350°) → polar
@@ -256,7 +284,7 @@ Typical end-to-end workflow:
 
 ```bash
 # 1. Simulate events
-python -m litepath batch --pmt-csv PMTPositions_Scan.txt \
+python -m litepath batch --geometry annie-2022-scan \
     --events 100 --photons-per-cm 150 --pmt-response
 
 # 2. Coarse full-sky direction fit for one event
@@ -298,10 +326,11 @@ that fit residuals can be computed for validation.
 - **`viz-lappd`** — Standalone LAPPD module viewer, served at
   `http://localhost:8081` (`--host`, `--port` as above).
 - **`benchmark`** — Converts WAGLE ROOT trees (ANNIE data and MC) into the
-  batch HDF5 schema for comparison with LitePath output.  See
+  batch HDF5 schema for comparison with LitePath output.  Takes
+  `--geometry` for the PMT table and detector rotation.  See
   [`BENCHMARK.md`](BENCHMARK.md).
 - **`build-detector-config`** — Writes the detector registry YAML
-  (`-o`, default `detectors.yaml`).
+  (`-o`, default `detectors.yaml`) for a `--geometry` version.
 - **`extract-manifest`** — Extracts the component manifest JSON from the
   STEP CAD file (`--step`, `-o`, default `component_manifest.json`).
 
@@ -567,6 +596,7 @@ path. Both are off by default (`0.0` = disabled).
 | File | Role |
 |------|------|
 | `cli.py` | CLI parser, all subcommands (`batch`, `batch-lappd`, `fit`, `viz-server`, etc.) |
+| `geometry/versions.py` | Geometry versions: loading, overlays, fingerprint, tagging, `load_build()` |
 | `geometry/elements.py` | `PMTRecord` and readers for the ToolAnalysis PMT table and the WCSim scan file |
 | `geometry/build.py` | `Geometry` dataclass, `build_geometry()`, surfboards and housings, `build_single_lappd_geometry()` |
 | `engine/kernel.py` | Taichi ray-intersection functions and `trace_kernel` |

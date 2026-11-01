@@ -100,8 +100,8 @@ pip install -e . --no-deps
 
 (`--no-deps` avoids re-resolving dependencies already satisfied by conda.)
 
-**Alternative for ARM: skip cadquery entirely.** Most batch workflows use
-`--pmt-csv` and never need cadquery.  Just `pip install -e .` will fail on
+**Alternative for ARM: skip cadquery entirely.** The geometry versions
+(`--geometry`) read a PMT table and never need cadquery.  Just `pip install -e .` will fail on
 cadquery, so install the other deps by hand:
 
 ```bash
@@ -127,7 +127,7 @@ the package will still import — cadquery is only used when `--step` or
 On CPU (any machine):
 
 ```bash
-python -m litepath batch --pmt-csv PMTPositions_Scan.txt --surfboard 3 --events 10 --photons-per-cm 50
+python -m litepath batch --geometry annie-2022-scan --events 10 --photons-per-cm 50
 ```
 
 Expected output:
@@ -153,14 +153,13 @@ Or set the arch directly in a one-off script.  For routine GPU use you can
 edit the `ti.init(arch=ti.cpu)` calls in `litepath/cli.py` and
 `litepath/viz_server.py` to `ti.cuda`.
 
-### With PMT CSV and surfboard LAPPDs
+### Standard full detector (three surfboards with LAPPDs)
 
 ```bash
 # Get the PMT positions file (ask the collaboration)
 # Then:
 python -m litepath batch \
-    --pmt-csv PMTPositions_Scan.txt \
-    --surfboard 3 --lappd-model annie \
+    --geometry annie-2022-scan \
     --events 100 --photons-per-cm 150
 ```
 
@@ -186,7 +185,7 @@ WebGL for the Three.js rendering.
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
 | `taichi.lang.exception.TaichiCompilationError: ...` | Taichi JIT needs C++ tools | `apt install build-essential cmake` |
-| `ModuleNotFoundError: No module named 'cadquery'` | ARM Linux + no conda | Install via conda-forge (section 4) or use `--pmt-csv` workflow (doesn't need cadquery) |
+| `ModuleNotFoundError: No module named 'cadquery'` | ARM Linux + no conda | Install via conda-forge (section 4) or use a `--geometry` version (doesn't need cadquery) |
 | `Cannot open self /usr/bin/python3` | System Python too old | Install Python 3.11+ from deadsnakes PPA or python.org |
 | `import taichi` crashes or `ti.cuda` unavailable | CUDA not installed or incompatible | Run with CPU only (default).  Taichi prints a clear error if it can't find a requested backend. |
 | Performance warning from Taichi, arch = `x64` | No GPU detected | Normal — CPU mode is ~2-5× slower than GPU.  If you have an NVIDIA card, install CUDA toolkit. |

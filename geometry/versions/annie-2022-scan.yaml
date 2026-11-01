@@ -1,0 +1,33 @@
+name: annie-2022-scan
+status: tagged
+description: 'ANNIE Phase II as LitePath simulated it up to 2026-11: 2022-10 laser-scan PMT
+  positions (PMTs 453 and 455 swapped in y), bottom-PMT spin 0 deg, three surfboards with
+  housed ANNIE LAPPDs. Use it to reproduce earlier runs and to compare with MC built on the
+  old PMT table.'
+inputs:
+  pmt_table: PMTPositions_Scan.txt
+  structure: PHASE2_INNER_STRUCTURE_closed.gdml
+settings:
+  det_rotation_deg: 22.5
+  bottom_rotation_deg: 45.0
+  bottom_spin_deg: 0.0
+  z_offset_mm: 0.0
+  lappd_model: annie
+  surfboards: 3
+  structure_mesh: true
+  pmt_meshes: true
+  lappds: true
+overlays: []
+tagged:
+  date: '2026-11-01'
+  fingerprint: 26c0f544ddacb2d1a7e49e2680fe5d320036fe3db7fecbe378520d748da5c677
+  files:
+    PMTPositions_Scan.txt: f21036a610f0e0f22cdf1b05e6b06baf0073f190705d80825d469eaf5821b600
+    PHASE2_INNER_STRUCTURE_closed.gdml: 9c70b227adde0dd890957621e1bf077d3942942771fc94898281c4b06fa38e9a
+    PHASE2_INNER_STRUCTURE_closed_cache.npz: b25e7df63f90d6497c63526ff08338daae9b6ef0f35fb7c09239be2447b029c5
+    pmt_meshes/pmt_10inch_body_body_cache.npz: c4d59e16ff1e8fca60bf8cb9f9fa08539375e40b3c0c0febfb29f10d0efcca4f
+    pmt_meshes/pmt_10inch_hardware_decimated.npy: 500a3ea9b2ee3bb7f675469cfaa95880844c017c7a796690fb2649995cae433a
+    pmt_meshes/pmt_8inch_body_body_cache.npz: 1a626a353e1e96104a8fcf32c34c47c36820087eb92f84d40436ec24f570123c
+    pmt_meshes/pmt_8inch_hardware_decimated.npy: 9be2b52167a422ec055b3f8dce5e538d729977b4c43380de2db75a51c3ba8866
+    pmt_meshes/pmt_etel_top_body_cache.npz: 9fed6998e7ece157d5b3a55b906f759d136d031991c648823c77dda55a2886e8
+    pmt_meshes/pmt_lux_bottom_body_cache.npz: 27ee90fc4162248ca3bd61ad106f46b4cd1554ce050c26a6633155dc46a3f6bb

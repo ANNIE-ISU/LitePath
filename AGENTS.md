@@ -20,6 +20,8 @@ litepath/
 ├── litepath/          # Main package (28 Python files)
 │   ├── cli.py         # CLI entry point (batch, fit, viz-server, etc.)
 │   ├── geometry/build.py  # Geometry dataclass, build_geometry(), surfboards
+│   ├── geometry/versions.py # Geometry versions, fingerprint, tagging, load_build()
+│   ├── geometry/elements.py # PMTRecord, ToolAnalysis / scan-file readers
 │   ├── engine/kernel.py   # Taichi intersection functions, trace_kernel
 │   ├── engine/trace.py    # trace_rays(), trace_with_optics()
 │   ├── sources/track.py   # Light-generating part of a muon track (inside the tank)
@@ -65,32 +67,28 @@ pytest
 
 # Batch simulation
 python -m litepath batch \
-    --pmt-csv PMTPositions_Scan.txt \
-    --surfboard 3 \
+    --geometry annie-2022-scan \
     --events 100 --photons-per-cm 150
 
 # Batch simulation without inner structure (PMTs + LAPPDs only)
 python -m litepath batch --no-gdml \
-    --pmt-csv PMTPositions_Scan.txt \
-    --surfboard 3 \
+    --geometry annie-2022-scan \
     --events 100
 
 # Batch simulation without PMT holder meshes (faster, PMT positions still loaded)
 python -m litepath batch --no-pmt-holders \
-    --pmt-csv PMTPositions_Scan.txt \
-    --surfboard 3 \
+    --geometry annie-2022-scan \
     --events 100
 
 # Batch simulation with Cherenkov + wbLS scintillation
 python -m litepath batch \
-    --pmt-csv PMTPositions_Scan.txt \
-    --surfboard 3 \
+    --geometry annie-2022-scan \
     --events 100 --photons-per-cm 150 \
     --scintillation --photons-per-cm-scint 100
 
 # Scintillation-only batch (Cherenkov off)
 python -m litepath batch \
-    --pmt-csv PMTPositions_Scan.txt \
+    --geometry annie-2022-scan \
     --events 100 --photons-per-cm 0 \
     --scintillation --photons-per-cm-scint 100
 
@@ -130,7 +128,7 @@ python scripts/event_display.py results/benchmark/mc.h5 --charge --center-phi 13
 | `--no-gdml` | false | Skip inner structure GDML mesh (tank + PMTs only) |
 | `--no-pmt-holders` | false | Skip PMT body and hardware holder meshes (PMT positions still loaded) |
 | `--no-lappd` | false | Skip LAPPD rectangles |
-| `--surfboard` | 0 | Number of obscurant PVC surfboards (0, 1, or 3) — use 3 for Phase II |
+| `--geometry` | `annie-2022-scan` | Geometry version (see `docs/README.md`); replaces the deprecated `--pmt-csv`, `--surfboard`, `--det-rotation`, … flags |
 | `--scintillation` | false | Enable wbLS scintillation photon generation (adds to Cherenkov) |
 | `--photons-per-cm-scint` | 100 | Scintillation photons per cm of track |
 | `--tau-fast` | 2.0 | Fast scintillation decay time (ns) |

@@ -8,9 +8,115 @@ from pathlib import Path
 
 import numpy as np
 
-from litepath.geometry.build import build_geometry
 from litepath.optics import WaterAttenuation, load_optics_config
 from litepath.output import write_detector_config
+
+# Older per-command geometry flags.  They still work, but build an unnamed
+# geometry version and print a deprecation warning; --geometry replaces them.
+_GEOMETRY_FLAGS = (
+    "gdml", "step", "manifest", "pmt_csv", "z_offset", "lappd_model", "det_rotation",
+    "surfboard", "lappd_indices",
+)
+# Switches that drop parts of whichever version is used (for speed or
+# debugging).  Not deprecated; the result is an unnamed derived version.
+_GEOMETRY_SWITCHES = {
+    "no_gdml": "structure_mesh", "no_pmt_holders": "pmt_meshes", "no_lappd": "lappds",
+}
+
+
+def add_geometry_option(parser: argparse.ArgumentParser) -> None:
+    """Add --geometry and make the parser's older geometry flags overrides.
+
+    Call after all of the parser's arguments are defined.  The older flags
+    and the switches get a ``None`` default so :func:`resolve_geometry` can
+    tell whether the user set them; the flags' original defaults are kept in
+    ``_geometry_defaults``.
+    """
+    from litepath.geometry.versions import DEFAULT_GEOMETRY
+    parser.add_argument("--geometry", type=str, default=None, metavar="NAME",
+                        help="Geometry version name or YAML file (default: "
+                             f"{DEFAULT_GEOMETRY}); see 'litepath geometry list'. "
+                             "Replaces the individual geometry flags below")
+    dests = {a.dest for a in parser._actions}
+    defaults = {a.dest: a.default for a in parser._actions if a.dest in _GEOMETRY_FLAGS}
+    switches = [k for k in _GEOMETRY_SWITCHES if k in dests]
+    parser.set_defaults(_geometry_defaults=defaults,
+                        **{k: None for k in [*defaults, *switches]})
+
+
+def resolve_geometry(args: argparse.Namespace):
+    """The GeometryVersion selected by --geometry or by the older flags."""
+    from litepath.geometry.versions import (
+        DEFAULT_GEOMETRY, STATUS_UNNAMED, GeometryError, fingerprint, list_versions,
+        load_version, version_from_flags,
+    )
+    defaults = args._geometry_defaults
+    given = {k: getattr(args, k) for k in defaults if getattr(args, k) is not None}
+    switches = [k for k in _GEOMETRY_SWITCHES if getattr(args, k, None)]
+    if given and args.geometry:
+        flags = ", ".join("--" + k.replace("_", "-") for k in given)
+        raise GeometryError(f"--geometry cannot be combined with {flags}")
+    if given:
+        flags = ", ".join("--" + k.replace("_", "-") for k in given)
+        version = version_from_flags({**defaults, **given, **{k: True for k in switches}})
+        fp = fingerprint(version)
+        same = [n for n in list_versions() if fingerprint(load_version(n)) == fp]
+        hint = f"--geometry {same[0]} builds the same detector" if same \
+            else "use --geometry NAME (see 'litepath geometry list')"
+        print(f"Warning: {flags} {'is' if len(given) == 1 else 'are'} deprecated and will "
+              f"be removed; {hint}")
+        return version
+
+    version = load_version(args.geometry or DEFAULT_GEOMETRY)
+    if switches:
+        for k in switches:
+            version.settings[_GEOMETRY_SWITCHES[k]] = False
+        version.name += "".join("+" + k.replace("_", "-") for k in switches)
+        version.status = STATUS_UNNAMED
+        version.tagged = {}
+    return version
+
+
+def load_geometry_build(args: argparse.Namespace):
+    """Resolve and build the geometry for a command; None (after a message) on error."""
+    from litepath.geometry.versions import GeometryError, load_build
+    try:
+        return load_build(resolve_geometry(args))
+    except GeometryError as exc:
+        print(f"Error: {exc}")
+        return None
+
+
+def geometry_command(args: argparse.Namespace) -> None:
+    from litepath.geometry.versions import (
+        GeometryError, file_hashes, fingerprint, list_versions, load_version, tag_version,
+    )
+    try:
+        if args.geometry_action == "list":
+            for name in list_versions():
+                v = load_version(name)
+                desc = v.description if len(v.description) <= 70 else v.description[:67] + "..."
+                print(f"{name:24s} {v.status:7s} {fingerprint(v)[:12]}  {desc}")
+        elif args.geometry_action == "show":
+            v = load_version(args.name)
+            hashes = file_hashes(v)
+            print(f"{v.name} ({v.status})\n  {v.description}\n  file: {v.path}")
+            print(f"  fingerprint: {fingerprint(v, hashes)}")
+            for role, path in v.inputs.items():
+                if path is not None:
+                    print(f"  {role}: {path}")
+            for key, val in v.settings.items():
+                print(f"  {key}: {val}")
+            for o in v.overlays:
+                print(f"  overlay: {o}")
+            print("  files:")
+            for key, h in hashes.items():
+                print(f"    {h[:12]}  {key}")
+        elif args.geometry_action == "tag":
+            fp = tag_version(args.name)
+            print(f"Tagged {args.name}: fingerprint {fp}")
+    except GeometryError as exc:
+        print(f"Error: {exc}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -19,6 +125,14 @@ def build_parser() -> argparse.ArgumentParser:
         description="GPU-accelerated ray tracer for ANNIE detector",
     )
     sub = p.add_subparsers(dest="command", required=True)
+
+    geo = sub.add_parser("geometry", help="List, show or tag geometry versions")
+    geo_sub = geo.add_subparsers(dest="geometry_action", required=True)
+    geo_sub.add_parser("list", help="List geometry versions")
+    geo_show = geo_sub.add_parser("show", help="Show a version's inputs, settings and hashes")
+    geo_show.add_argument("name", help="Version name or YAML file")
+    geo_tag = geo_sub.add_parser("tag", help="Freeze a draft version (records its hashes)")
+    geo_tag.add_argument("name", help="Version name or YAML file")
 
     cherenkov = sub.add_parser("extract-manifest", help="Extract component manifest from STEP")
     cherenkov.add_argument("--step", required=True, type=Path, help="Path to STEP CAD file")
@@ -238,7 +352,7 @@ def build_parser() -> argparse.ArgumentParser:
     fit.add_argument("--event", type=int, default=0, help="Event ID to fit")
     fit.add_argument("--gdml", type=Path, default=Path("PHASE2_INNER_STRUCTURE_closed.gdml"),
                      help="Path to GDML geometry mesh")
-    fit.add_argument("--pmt-csv", type=Path, default=None,
+    fit.add_argument("--pmt-csv", type=Path, default=Path("PMTPositions_Scan.txt"),
                      help="Path to PMT scan file or CSV (default: PMTPositions_Scan.txt)")
     fit.add_argument("--step", type=Path, default=None, help="Path to STEP CAD file")
     fit.add_argument("--manifest", type=Path, default=None, help="Path to cached component manifest JSON")
@@ -285,16 +399,17 @@ def build_parser() -> argparse.ArgumentParser:
     fit.add_argument("--polar", action="store_true",
                      help="Force polar projection (default: rectangular for zoomed-in, polar for full-sky)")
 
+    for geometry_parser in (detcfg, batch, fit, bench):
+        add_geometry_option(geometry_parser)
+
     return p
 
 
 def build_detector_config_command(args: argparse.Namespace) -> None:
-    print(f"Loading geometry from {args.gdml}...")
-    geom = build_geometry(args.gdml, step_path=args.step, manifest_path=args.manifest,
-                          pmt_csv_path=args.pmt_csv, no_lappd=args.no_lappd,
-                          no_gdml=args.no_gdml, no_pmt_holders=args.no_pmt_holders,
-                          z_offset=args.z_offset, lappd_model=args.lappd_model,
-                          det_rotation_deg=args.det_rotation)
+    build = load_geometry_build(args)
+    if build is None:
+        return
+    geom = build.geometry
 
     print(f"  Built {len(geom.detectors)} detectors:")
     for d in geom.detectors:
@@ -395,18 +510,10 @@ def batch_command(args: argparse.Namespace) -> None:
         return
 
     # Build geometry (reuse the same geometry for all events)
-    lappd_indices = None
-    if args.lappd_indices:
-        import json
-        lappd_indices = [int(x) for x in args.lappd_indices.split(",")]
-
-    print(f"Loading geometry from {args.gdml}...")
-    geom = build_geometry(args.gdml, step_path=args.step, manifest_path=args.manifest,
-                          pmt_csv_path=args.pmt_csv, lappd_indices=lappd_indices,
-                          no_lappd=args.no_lappd, no_gdml=args.no_gdml, no_pmt_holders=args.no_pmt_holders,
-                          z_offset=args.z_offset,
-                          lappd_model=args.lappd_model,
-                          det_rotation_deg=args.det_rotation, n_surfboards=args.surfboard)
+    build = load_geometry_build(args)
+    if build is None:
+        return
+    geom = build.geometry
 
     print(f"  Mesh: {geom.mesh_vertices.shape[0]} verts, {geom.mesh_triangles.shape[0]} tris")
     print(f"  PMTs: {geom.pmt_centers.shape[0]}")
@@ -500,8 +607,16 @@ def benchmark_command(args: argparse.Namespace) -> None:
         print("Error: pass --data and/or --mc")
         return
 
-    print("Building PMT registry from", args.pmt_csv)
-    registry = load_pmt_registry(args.pmt_csv, det_rotation_deg=args.det_rotation)
+    from litepath.geometry.versions import GeometryError
+    try:
+        version = resolve_geometry(args)
+    except GeometryError as exc:
+        print(f"Error: {exc}")
+        return
+    pmt_csv = version.inputs["pmt_table"]
+    det_rotation = version.settings["det_rotation_deg"]
+    print(f"Building PMT registry from {pmt_csv} (geometry: {version.name})")
+    registry = load_pmt_registry(pmt_csv, det_rotation_deg=det_rotation)
     print(f"  {len(registry)} PMTs (TubeIDs {registry.tube_id.min()}-"
           f"{registry.tube_id.max()})")
 
@@ -521,7 +636,7 @@ def benchmark_command(args: argparse.Namespace) -> None:
             registry,
             kind=kind,
             source_file=str(src),
-            det_rotation_deg=args.det_rotation,
+            det_rotation_deg=det_rotation,
             write_raw_hits=not args.no_raw_hits,
         )
         print(f"  Wrote {out_path}")
@@ -640,27 +755,10 @@ def _parse_range(s: str) -> tuple[float, float, int]:
 def fit_command(args: argparse.Namespace) -> None:
     from litepath.fitting import load_observed_event, grid_scan_direction
 
-    # Resolve PMT CSV (default: PMTPositions_Scan.txt in current directory)
-    pmt_csv = args.pmt_csv
-    if pmt_csv is None:
-        candidate = Path("PMTPositions_Scan.txt")
-        if candidate.exists():
-            pmt_csv = candidate
-
-    print(f"Loading geometry from {args.gdml}...")
-    geom = build_geometry(
-        args.gdml,
-        step_path=args.step,
-        manifest_path=args.manifest,
-        pmt_csv_path=pmt_csv,
-        no_lappd=args.no_lappd,
-        no_gdml=args.no_gdml,
-        no_pmt_holders=args.no_pmt_holders,
-        z_offset=args.z_offset,
-        lappd_model=args.lappd_model,
-        det_rotation_deg=args.det_rotation,
-        n_surfboards=args.surfboard,
-    )
+    build = load_geometry_build(args)
+    if build is None:
+        return
+    geom = build.geometry
 
     # Parse grid ranges
     print(f"Loading observed data for event {args.event}...")
@@ -770,7 +868,9 @@ def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if args.command == "extract-manifest":
+    if args.command == "geometry":
+        geometry_command(args)
+    elif args.command == "extract-manifest":
         extract_manifest_command(args)
     elif args.command == "build-detector-config":
         build_detector_config_command(args)

@@ -26,7 +26,9 @@ REFERENCE_DIR = REPO / "tests" / "reference"
 # Paths are relative to the repo root so they read the same in every run's
 # stored config.
 MUONS = "tests/reference/inputs/muons3.txt"
-FULL = ["--pmt-csv", "PMTPositions_Scan.txt", "--surfboard", "3"]
+# The standard full detector.  annie-2022-scan reproduces the runs made with
+# the older flags "--pmt-csv PMTPositions_Scan.txt --surfboard 3".
+FULL = ["--geometry", "annie-2022-scan"]
 FULL_MUONS = ["batch", *FULL, "--muon-file", MUONS, "--seed", "7", "-o", "{out}"]
 
 # LAPPD digitisation sums currents with parallel atomic adds, so the order of

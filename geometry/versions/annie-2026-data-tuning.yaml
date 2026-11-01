@@ -1,0 +1,21 @@
+name: annie-2026-data-tuning
+status: draft
+description: >-
+  Working version for PMT position tuning: annie-2026-data plus the
+  unfinished metrology-draft offsets (today's corrections.csv). Tag a copy
+  under a new name once tuning is done.
+inputs:
+  pmt_table: geometry/base/FullTankPMTGeometry.csv
+  structure: PHASE2_INNER_STRUCTURE_closed.gdml
+settings:
+  det_rotation_deg: 22.5
+  bottom_rotation_deg: 45.0
+  bottom_spin_deg: 22.5
+  z_offset_mm: 0.0
+  lappd_model: annie
+  surfboards: 3
+  structure_mesh: true
+  pmt_meshes: true
+  lappds: true
+overlays:
+  - geometry/overlays/metrology-draft.yaml

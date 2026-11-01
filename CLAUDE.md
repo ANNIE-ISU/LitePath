@@ -56,6 +56,13 @@ changed before starting.
   is now only a compatibility module; code lives in `geometry/`, `engine/`,
   `sources/` and `simulate.py` (see `docs/README.md` code map)
 - HDF5 schema version is `SCHEMA_VERSION = 1` in `io_h5.py`
+- Geometry versions (step 3, in progress): YAML in `geometry/versions/`,
+  overlays in `geometry/overlays/`, upstream tables in `geometry/base/`;
+  `litepath/geometry/versions.py` (`load_build()`, fingerprint, tagging).
+  Commands take `--geometry NAME`; the older geometry flags are deprecated
+  (warning), `--no-gdml/--no-pmt-holders/--no-lappd` stay as switches.
+  Tagged versions are frozen: never edit one, make a new version.
+  PMT IDs: ToolAnalysis channel key = detector key = WCSim TubeID (332–463)
 - Track length (`sources/track.py`, `track_length_mm`) is where light is
   generated: the part of the muon line inside the tank. It is a simulation
   cutoff, NOT a physical range. Muons do not "stop" at the tank wall,

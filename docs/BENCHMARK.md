@@ -29,8 +29,7 @@ Outputs `results/benchmark/data.h5` and `results/benchmark/mc.h5`.
 |------|---------|-------------|
 | `--data` / `--mc` | — | ROOT files to convert (at least one required) |
 | `--tree` | `Event` | TTree name inside the ROOT files |
-| `--pmt-csv` | `PMTPositions_Scan.txt` | PMT scan file used to build the detector registry |
-| `--det-rotation` | `22.5` | Global Z-rotation (deg), must match the raytracer runs |
+| `--geometry` | `annie-2022-scan` | Geometry version whose PMT table and detector rotation build the registry; use the version of the LitePath runs you compare with (`--pmt-csv` and `--det-rotation` are deprecated) |
 | `--output-dir` / `-o` | `results/benchmark` | Output directory |
 | `--max-events` | `0` (all) | Convert at most N events per file |
 | `--no-raw-hits` | false | Skip the per-hit `pmt_hits` table |
@@ -263,7 +262,7 @@ muon topology file and feed it to `litepath batch`:
 ```bash
 python scripts/mc_muon_file.py results/benchmark/mc.h5 --event 0 --out /tmp/ev0.txt
 python -m litepath batch --muon-file /tmp/ev0.txt --events 1 \
-    --pmt-csv PMTPositions_Scan.txt --surfboard 3 --pmt-response \
+    --geometry annie-2022-scan --pmt-response \
     --max-bounces 3 \
     --output-dir results/raytrace_ev0
 ```

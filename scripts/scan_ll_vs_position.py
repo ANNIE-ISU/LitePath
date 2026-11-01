@@ -20,7 +20,7 @@ from pathlib import Path
 
 import numpy as np
 
-from litepath.geometry.build import build_geometry
+from litepath.cli import add_geometry_option, load_geometry_build
 from litepath.fitting import load_observed_event, grid_scan_direction
 
 
@@ -49,7 +49,7 @@ def main() -> None:
     parser.add_argument("--gdml", type=Path,
                         default=Path("PHASE2_INNER_STRUCTURE_closed.gdml"),
                         help="Path to GDML geometry mesh")
-    parser.add_argument("--pmt-csv", type=Path, default=None,
+    parser.add_argument("--pmt-csv", type=Path, default=Path("PMTPositions_Scan.txt"),
                         help="Path to PMT scan file or CSV")
     parser.add_argument("--step", type=Path, default=None,
                         help="Path to STEP CAD file")
@@ -104,16 +104,9 @@ def main() -> None:
     parser.add_argument("--show", action="store_true",
                         help="Show heatmap of best LL vs position")
 
+    add_geometry_option(parser)
     args = parser.parse_args()
 
-    # ------------------------------------------------------------------
-    # Resolve PMT CSV
-    # ------------------------------------------------------------------
-    pmt_csv = args.pmt_csv
-    if pmt_csv is None:
-        candidate = Path("PMTPositions_Scan.txt")
-        if candidate.exists():
-            pmt_csv = candidate
 
     # ------------------------------------------------------------------
     # Parse grids
@@ -140,18 +133,10 @@ def main() -> None:
     # ------------------------------------------------------------------
     # Build geometry
     # ------------------------------------------------------------------
-    print(f"\nLoading geometry from {args.gdml}...")
-    geom = build_geometry(
-        args.gdml,
-        step_path=args.step,
-        manifest_path=args.manifest,
-        pmt_csv_path=pmt_csv,
-        no_lappd=args.no_lappd,
-        z_offset=args.z_offset,
-        lappd_model=args.lappd_model,
-        det_rotation_deg=args.det_rotation,
-        n_surfboards=args.surfboard,
-    )
+    build = load_geometry_build(args)
+    if build is None:
+        sys.exit(1)
+    geom = build.geometry
 
     # ------------------------------------------------------------------
     # Load observed event

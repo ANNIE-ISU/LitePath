@@ -356,6 +356,7 @@ def build_geometry(
     bottom_spin_deg: float = 0.0,
     det_rotation_deg: float = 22.5,
     n_surfboards: int = 0,
+    pmt_offsets: Optional[dict[int, tuple[float, float, float]]] = None,
 ) -> Geometry:
     """Build a Geometry from a GDML file and optional PMT/STEP data sources.
 
@@ -367,6 +368,10 @@ def build_geometry(
       5. Optionally build the ANNIE LAPPD housing model.
       6. Build the detector registry (stable ID → DetectorInfo mapping).
       7. Load PMT body/hardware meshes (skipped when no_pmt_holders=True).
+
+    *pmt_offsets* maps channel key to an (dx, dy, dz) shift in mm, in the
+    final structure frame (after all rotations), applied to the PMT sphere
+    centre and mesh instance position (see litepath.geometry.versions).
     """
     # ---- Stage 1: parse the GDML structure mesh ----
     if no_gdml:
@@ -400,6 +405,12 @@ def build_geometry(
                                          bottom_rotation_deg=bottom_rotation_deg,
                                          bottom_spin_deg=bottom_spin_deg,
                                          det_rotation_deg=det_rotation_deg)
+        if pmt_offsets:
+            for i, key in enumerate(pmt_data["detector_nums"]):
+                if key in pmt_offsets:
+                    shift = np.asarray(pmt_offsets[key], dtype=np.float32)
+                    pmt_data["centers"][i] += shift
+                    pmt_data["instance_positions"][i] += shift
         pmt_centers = pmt_data["centers"]
         pmt_radii = pmt_data["radii"]
         pmt_directions = pmt_data["directions"]

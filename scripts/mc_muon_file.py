@@ -7,7 +7,7 @@ raytracer reproduces the light pattern of a specific WAGLE Monte-Carlo event:
     python scripts/mc_muon_file.py results/benchmark/mc.h5 --event 0 \
         --out /tmp/ev0.txt
     python -m litepath batch --muon-file /tmp/ev0.txt --events 1 \
-        --pmt-csv PMTPositions_Scan.txt --surfboard 3
+        --geometry annie-2022-scan
     python scripts/event_display.py results/benchmark/mc.h5 \
         --compare results/raytrace/output.h5 --compare-event 0 --charge
 
