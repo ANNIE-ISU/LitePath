@@ -87,6 +87,7 @@ from litepath.io_h5 import (
     PMT_RESPONSE_DTYPE,
     SOURCE_TRACK,
 )
+from litepath.sources.track import tank_light_segment
 from litepath.geometry.frame import (
     TANK_CENTRE_Z_MM,
     frame_to_tank,
@@ -329,6 +330,8 @@ class PMTRegistry:
     panels: np.ndarray         # (N,) int
     types: list[str]
     radii: np.ndarray          # (N,) float (mm)
+    cable_labels: list[str] = field(default_factory=list)
+    statuses: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self._by_tube = {int(t): i for i, t in enumerate(self.tube_id)}
@@ -363,6 +366,12 @@ class PMTRegistry:
         arr["z"] = self.positions[:, 2]
         arr["label"] = [f"PMT_{int(t)}" for t in self.tube_id]
         arr["panel"] = self.panels.astype(np.int32)
+        arr["channel_key"] = self.tube_id.astype(np.int32)
+        arr["detector_key"] = self.tube_id.astype(np.int32)
+        n = len(self.tube_id)
+        arr["cable_label"] = self.cable_labels or [""] * n
+        arr["pmt_type"] = self.types
+        arr["status"] = self.statuses or ["ON"] * n
         return arr
 
 
@@ -384,6 +393,8 @@ def load_pmt_registry(scan_path: Path | str) -> PMTRegistry:
         panels=np.asarray(pmt["panels"], dtype=np.int32),
         types=list(pmt["types"]),
         radii=np.asarray(pmt["radii"], dtype=np.float32),
+        cable_labels=[r.cable_label for r in pmt["records"]],
+        statuses=[r.status for r in pmt["records"]],
     )
 
 
@@ -804,6 +815,9 @@ def _truth_row(event: BenchmarkEvent, registry: PMTRegistry,
     mu = np.zeros(1, dtype=MUON_TRUTH_DTYPE)
     bt = np.zeros(1, dtype=BENCH_TRUTH_DTYPE)
     mu["event_id"] = event.event_id
+    for col in ("light_track_length_mm", "tank_entry_x", "tank_entry_y", "tank_entry_z",
+                "tank_exit_x", "tank_exit_y", "tank_exit_z"):
+        mu[col] = np.nan
     bt["event_id"] = event.event_id
     bt["n_hits_total"] = n_hits_total
     bt["n_pmt_hit"] = n_pmt_hit
@@ -828,6 +842,17 @@ def _truth_row(event: BenchmarkEvent, registry: PMTRegistry,
     mu["phi_deg"] = phi
     mu["track_length_mm"] = truth.track_length_water_m * 1000.0 \
         if np.isfinite(truth.track_length_water_m) else np.nan
+    # As in litepath batch: the stretch LitePath would light up, from the
+    # vertex (or the tank entry) to the exit of LitePath's tank.
+    # track_length_mm stays WCSim's own track length in water.
+    start, chord = tank_light_segment(pos_world, dir_world, TANK_RADIUS_MM,
+                                      TANK_Z_MIN_MM, TANK_Z_MAX_MM)
+    mu["light_track_length_mm"] = chord * 1000.0
+    if chord > 0.0:
+        entry = pos_world + 1000.0 * start * dir_world
+        exit_ = pos_world + 1000.0 * (start + chord) * dir_world
+        mu["tank_entry_x"], mu["tank_entry_y"], mu["tank_entry_z"] = entry
+        mu["tank_exit_x"], mu["tank_exit_y"], mu["tank_exit_z"] = exit_
     mu["n_detected"] = n_pmt_hit
     mu["source_type"] = SOURCE_TRACK
     mu["spread_deg"] = np.nan
@@ -862,6 +887,7 @@ def write_benchmark_h5(
     *,
     kind: str = "data",
     source_file: str = "",
+    provenance: Optional[dict] = None,
     write_raw_hits: bool = True,
     chunk_events: int = 500,
 ) -> Path:
@@ -884,6 +910,9 @@ def write_benchmark_h5(
         ``"data"`` or ``"mc"`` — recorded in the root attributes.
     source_file : str
         Path of the originating ROOT file (recorded in the root attributes).
+    provenance : dict, optional
+        Geometry provenance attributes (``geometry_version`` etc.) for the
+        geometry whose PMT table built *registry*.
     write_raw_hits : bool
         Write the per-hit ``pmt_hits`` table.
     chunk_events : int
@@ -914,6 +943,8 @@ def write_benchmark_h5(
         f.attrs["created"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         f.attrs["source_file"] = source_file
         f.attrs["frame"] = FRAME_NAME
+        for key, val in (provenance or {}).items():
+            f.attrs[key] = val
         f.attrs["config"] = json.dumps({
             "kind": kind,
             "source_file": source_file,

@@ -165,7 +165,7 @@ class BatchAccumulator:
     Each ``append_event()`` call appends rows to resizable HDF5 datasets.
     This avoids accumulating all rows in Python memory.
 
-    The written layout follows the standardized v1 schema: every batch mode
+    The written layout follows the standardized schema (v2): every batch mode
     (full detector or standalone LAPPD) writes ``photon_hits``,
     ``muon_truth``, ``pmt_responses`` (optional), ``lappd_readouts``
     (optional) and ``detectors`` tables, plus schema metadata in the root
@@ -284,6 +284,8 @@ class BatchAccumulator:
         source_type: int = SOURCE_TRACK,
         spread_deg: float = float("nan"),
         intercept: Optional[tuple] = None,
+        tank_entry: Optional[tuple] = None,
+        tank_exit: Optional[tuple] = None,
     ) -> None:
         """Record one muon truth row (per-event light-source truth).
 
@@ -313,6 +315,10 @@ class BatchAccumulator:
         arr["theta_deg"] = theta_deg
         arr["phi_deg"] = phi_deg
         arr["track_length_mm"] = track_length * 1000.0  # convert m → mm
+        arr["light_track_length_mm"] = track_length * 1000.0
+        for name, point in (("tank_entry", tank_entry), ("tank_exit", tank_exit)):
+            for axis, value in zip("xyz", point[:3] if point is not None else (np.nan,) * 3):
+                arr[f"{name}_{axis}"] = value
         arr["n_generated"] = n_generated
         arr["n_detected"] = n_detected
         arr["n_generated_ckv"] = n_generated_ckv
@@ -405,6 +411,10 @@ class BatchConfig:
     burst_n_photons: int = 1000
     burst_position: Optional[tuple[float, float, float]] = None
     burst_t0: float = 0.0
+
+    # PMTs (detector indices) whose hits are dropped: --mask-dead fills this
+    # with the PMTs marked OFF in the geometry's PMT table
+    masked_pmt_indices: tuple[int, ...] = ()
 
     # Response models
     pmt_response: bool = False
@@ -504,6 +514,7 @@ def run_batch(
         event_counts: list[int] = []
         event_muon: list[tuple] = []
         event_track_length: list[float] = []
+        event_tank_points: list[tuple] = []
         event_n_generated: list[int] = []
         event_n_ckv: list[int] = []
         event_n_sci: list[int] = []
@@ -519,6 +530,7 @@ def run_batch(
                 muon_pos = (cx, cy, cz, config.burst_t0)
                 muon_dir = (0.0, 0.0, -1.0)
                 track_length = 0.0
+                tank_points = (None, None)
                 o, d, ct = generate_isotropic_photons(
                     muon_pos, config.burst_n_photons, rng,
                 )
@@ -530,6 +542,9 @@ def run_batch(
                 # emission starts at the tank entry if the muon starts outside.
                 start, track_length = light_segment(muon_pos, muon_dir, geometry)
                 emit_pos = advance_muon(muon_pos, muon_dir, start) if start > 0.0 else muon_pos
+                tank_points = (None, None)
+                if track_length > 0.0 and geometry.tank_radius > 0.0:
+                    tank_points = (emit_pos, advance_muon(muon_pos, muon_dir, start + track_length))
                 if track_length > 0.0:
                     o, d, ct = generate_cherenkov_photons(
                         emit_pos, muon_dir, config.photons_per_cm,
@@ -565,6 +580,7 @@ def run_batch(
             event_counts.append(len(o))
             event_muon.append((muon_pos, muon_dir))
             event_track_length.append(track_length)
+            event_tank_points.append(tank_points)
             event_n_generated.append(len(o))
             event_n_ckv.append(event_src_ckv)
             event_n_sci.append(event_src_sci)
@@ -641,10 +657,14 @@ def run_batch(
         hit_offsets = np.zeros(n_batch + 1, dtype=np.int64)
         np.cumsum(hit_counts, out=hit_offsets[1:])
 
+        masked = np.asarray(config.masked_pmt_indices, dtype=np.float32)
         for i in range(n_batch):
             event_id = processed + i
             sl = slice(hit_offsets[i], hit_offsets[i + 1])
             event_hits = full[sl]
+            if masked.size:
+                dead = (np.abs(event_hits[:, HDS] - DET_SYS_PMT) < 0.5) & np.isin(event_hits[:, HDI], masked)
+                event_hits = event_hits[~dead]
             muon_pos, muon_dir = event_muon[i]
 
             pmt_responses = None
@@ -674,6 +694,8 @@ def run_batch(
                     "pos": muon_pos,
                     "direc": muon_dir,
                     "track_length": event_track_length[i],
+                    "tank_entry": event_tank_points[i][0],
+                    "tank_exit": event_tank_points[i][1],
                     "n_generated": event_n_generated[i],
                     "n_generated_ckv": event_n_ckv[i],
                     "n_generated_sci": event_n_sci[i],

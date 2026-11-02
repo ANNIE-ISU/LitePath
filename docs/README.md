@@ -137,6 +137,7 @@ python -m litepath batch [flags]
 | `--max-bounces` | 0 | Multi-bounce optics |
 | `--pmt-response` | false | Enable PMT digital model (SPE charge + TTS) |
 | `--full-wf` | false | Full waveform path (requires `--pmt-response`) |
+| `--mask-dead` | false | Drop hits on PMTs marked OFF in the geometry's PMT table |
 | `--light-burst` | false | Isotropic light burst (instead of muon Cherenkov) |
 | `--burst-n-phots` | 1000 | Number of isotropic photons per burst |
 | `--burst-position` | None | Burst centre `"x y z"` (mm) |
@@ -161,9 +162,10 @@ python -m litepath batch [flags]
 | `photon_hits` | Per-photon hit records, incl. `photon_source` (0=Cherenkov, 1=scintillation) |
 | `pmt_responses` | Digitised charges and hit times (when `--pmt-response`) |
 | `lappd_readouts` | Full digital LAPPD traces, one row per (event, LAPPD) (when `--lappd-response`) |
-| `muon_truth` | Per-event truth (source type, position, direction, track length, etc.) with per-source generated/detected counts |
-| `detectors` | Detector registry (system, index, position, label, panel) |
-| `metadata` | Tank dimensions and geometry parameters |
+| `muon_truth` | Per-event truth (source type, position, direction, light track length, tank entry/exit, etc.) with per-source generated/detected counts |
+| `detectors` | Detector registry (system, index, position, label, panel, channel key, cable label, type, ON/OFF) |
+| `geometry_elements` | The simulated detector: position, direction, size, type, status per PMT/LAPPD |
+| root attributes | Tank dimensions, geometry version and fingerprint, LitePath commit |
 
 The `photon_hits.arrival_time` column already includes the scintillation
 decay delay for scintillation photons, so Cherenkov and scintillation

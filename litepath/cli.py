@@ -217,6 +217,9 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Skip writing per-event output files")
     batch.add_argument("--pmt-response", action="store_true",
                        help="Enable PMT digital model")
+    batch.add_argument("--mask-dead", action="store_true",
+                       help="Drop hits on PMTs marked OFF in the geometry's PMT table "
+                            "(ToolAnalysis status)")
     batch.add_argument("--full-wf", action="store_true",
                        help="Use full waveform path for PMT response")
     batch.add_argument("--lappd-response", action="store_true",
@@ -516,6 +519,11 @@ def batch_command(args: argparse.Namespace) -> None:
     if build is None:
         return
     geom = build.geometry
+    if args.mask_dead:
+        records = (geom.pmt_info or {}).get("records", [])
+        config.masked_pmt_indices = tuple(i for i, r in enumerate(records) if r.status == "OFF")
+        keys = [records[i].channel_key for i in config.masked_pmt_indices]
+        print(f"  Masking {len(keys)} PMTs marked OFF: {keys}")
 
     print(f"  Mesh: {geom.mesh_vertices.shape[0]} verts, {geom.mesh_triangles.shape[0]} tris")
     print(f"  PMTs: {geom.pmt_centers.shape[0]}")
@@ -575,15 +583,17 @@ def batch_command(args: argparse.Namespace) -> None:
 
     # Write metadata and detectors into the HDF5 file (append mode)
     if h5_path.exists():
+        from litepath.geometry.versions import build_provenance
         from litepath.io_h5 import write_metadata, write_detectors
         meta = {
             "tank_radius_mm": geom.tank_radius,
             "tank_z_min_mm": geom.tank_z_min,
             "tank_z_max_mm": geom.tank_z_max,
+            **build_provenance(build),
         }
         write_metadata(h5_path, meta)
         print(f"  Wrote metadata to {h5_path}")
-        write_detectors(h5_path, geom.detectors)
+        write_detectors(h5_path, geom.detectors, geom.pmt_info)
 
     print("Done.")
 
@@ -618,6 +628,8 @@ def benchmark_command(args: argparse.Namespace) -> None:
     pmt_csv = version.inputs["pmt_table"]
     print(f"Building PMT registry from {pmt_csv} (geometry: {version.name})")
     registry = load_pmt_registry(pmt_csv)
+    from litepath.geometry.versions import version_provenance
+    provenance = version_provenance(version)
     print(f"  {len(registry)} PMTs (TubeIDs {registry.tube_id.min()}-"
           f"{registry.tube_id.max()})")
 
@@ -637,6 +649,7 @@ def benchmark_command(args: argparse.Namespace) -> None:
             registry,
             kind=kind,
             source_file=str(src),
+            provenance=provenance,
             write_raw_hits=not args.no_raw_hits,
         )
         print(f"  Wrote {out_path}")
@@ -759,6 +772,14 @@ def fit_command(args: argparse.Namespace) -> None:
     if build is None:
         return
     geom = build.geometry
+
+    from litepath.io_h5 import read_attrs
+    file_geometry = read_attrs(args.h5).get("geometry_hash")
+    if file_geometry and file_geometry != build.fingerprint:
+        name = read_attrs(args.h5).get("geometry_version", "?")
+        print(f"  Warning: {args.h5} was simulated with geometry '{name}' "
+              f"({file_geometry[:12]}), but the fit uses '{build.version.name}' "
+              f"({build.fingerprint[:12]}); pass the same --geometry")
 
     # Parse grid ranges
     print(f"Loading observed data for event {args.event}...")

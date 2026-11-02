@@ -410,3 +410,71 @@ def load_build(version: GeometryVersion | str | Path, quiet: bool = False) -> Bu
     )
     return Build(geometry=geometry, version=version, fingerprint=fp, pmt_offsets=offsets)
 
+
+
+# ---------------------------------------------------------------------------
+# Provenance for output files
+# ---------------------------------------------------------------------------
+
+STATUS_BUILT_IN = "built-in"
+STANDALONE_VERSION = "lappd-standalone"
+
+
+def git_commit() -> str:
+    """LitePath's git commit, with ``-dirty`` if tracked files changed; ``unknown`` without git."""
+    import subprocess
+
+    def run(*args: str) -> str:
+        return subprocess.run(["git", *args], cwd=REPO_ROOT, capture_output=True,
+                              text=True, timeout=10, check=True).stdout.strip()
+    try:
+        commit = run("rev-parse", "HEAD")
+        dirty = run("status", "--porcelain", "--untracked-files=no")
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    return commit + ("-dirty" if dirty else "")
+
+
+def build_provenance(build: Build) -> dict:
+    """Root attributes recording which detector a run simulated (schema v2)."""
+    return version_provenance(build.version, build.fingerprint)
+
+
+def version_provenance(version: GeometryVersion, fp: Optional[str] = None) -> dict:
+    """Root attributes for *version* (fingerprint computed unless given)."""
+    table = version.inputs.get("pmt_table")
+    return {
+        "geometry_version": version.name,
+        "geometry_status": version.status,
+        "geometry_hash": fp or fingerprint(version),
+        "geometry_pmt_table": _rel(table) if table else "",
+        "geometry_pmt_table_sha256": _sha256(table) if table and table.exists() else "",
+        "litepath_commit": git_commit(),
+    }
+
+
+def standalone_fingerprint(geometry) -> str:
+    """Fingerprint of the built-in standalone LAPPD module.
+
+    Hashes the built housing and photocathode (positions rounded to 1 µm),
+    so any change to the module model changes it.
+    """
+    import numpy as np
+    blob = {
+        "name": STANDALONE_VERSION,
+        "housing": np.round(np.asarray(geometry.lappd_housing_data, dtype=np.float64), 3).tolist(),
+        "lappd": np.round(np.asarray(geometry.annie_lappd_data, dtype=np.float64), 3).tolist(),
+    }
+    return hashlib.sha256(json.dumps(blob, sort_keys=True).encode()).hexdigest()
+
+
+def standalone_provenance(geometry) -> dict:
+    """Root attributes for ``batch-lappd`` output (the built-in module)."""
+    return {
+        "geometry_version": STANDALONE_VERSION,
+        "geometry_status": STATUS_BUILT_IN,
+        "geometry_hash": standalone_fingerprint(geometry),
+        "geometry_pmt_table": "",
+        "geometry_pmt_table_sha256": "",
+        "litepath_commit": git_commit(),
+    }

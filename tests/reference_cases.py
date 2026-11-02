@@ -110,8 +110,9 @@ def collect_outputs(out_dir: Path) -> dict[str, np.ndarray]:
                     values = np.array([v.decode() if isinstance(v, bytes) else str(v)
                                        for v in values])
                 arrays[f"h5/{table}/{col}"] = values
-        # 'created' is a timestamp; the output dir differs per run.
-        attrs = {k: v for k, v in f.attrs.items() if k != "created"}
+        # 'created' is a timestamp, 'litepath_commit' changes with every
+        # commit; the output dir differs per run.
+        attrs = {k: v for k, v in f.attrs.items() if k not in ("created", "litepath_commit")}
         config = json.loads(attrs.pop("config"))
         config.pop("output_dir", None)
         attrs["config"] = config

@@ -159,10 +159,11 @@ python scripts/event_display.py results/benchmark/mc.h5 --charge --center-phi 13
 | `--no-record` | false | Skip writing per-event output files |
 | `--seed` | — | Random seed |
 
-Both `batch` and `batch-lappd` write the same HDF5 schema (v1):
+Both `batch` and `batch-lappd` write the same HDF5 schema (v2):
 `photon_hits`, `muon_truth`, `lappd_readouts` (flat, per event+LAPPD),
-`pmt_responses` (`batch` only), `detectors`, plus `format`/`schema_version`/
-`detector_mode`/`config` root attrs.  See `docs/BATCH_OUTPUT.md` and use
+`pmt_responses` (`batch` only), `detectors`, `geometry_elements`, plus
+`format`/`schema_version`/`detector_mode`/`config` and geometry provenance
+(`geometry_version`, `geometry_hash`, …) root attrs.  See `docs/BATCH_OUTPUT.md` and use
 `BatchReader` in `litepath/io_h5.py` to load files.
 
 ## Key Data Files

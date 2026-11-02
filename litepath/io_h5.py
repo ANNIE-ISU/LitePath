@@ -25,7 +25,7 @@ PHOTON_HIT_DTYPE = np.dtype([
     ("photon_source", "i4"),
 ])
 
-# Per-event light-source truth (17 + 5 columns).
+# Per-event light-source truth (17 + 5 + 7 columns).
 # The table records the "true" parameters of whatever produced the light
 # in each event.  ``source_type`` discriminates between the definitions
 # (see SOURCE_TRACK / SOURCE_LIGHT_BURST / SOURCE_SPOT below); columns that
@@ -54,6 +54,18 @@ MUON_TRUTH_DTYPE = np.dtype([
     ("intercept_x", "f4"),          # PC target the beam was aimed at (mm); NaN when unused
     ("intercept_y", "f4"),
     ("intercept_z", "f4"),
+    # v2: track_length_mm under a clearer name (same value; track_length_mm
+    # stays for now), and where the light-emitting stretch starts and ends:
+    # the tank entry (or the start, for a muon starting inside) and the tank
+    # exit (mm).  NaN when no light is generated in a tank (missed tank,
+    # bursts, spot beams, standalone LAPPD).
+    ("light_track_length_mm", "f4"),
+    ("tank_entry_x", "f4"),
+    ("tank_entry_y", "f4"),
+    ("tank_entry_z", "f4"),
+    ("tank_exit_x", "f4"),
+    ("tank_exit_y", "f4"),
+    ("tank_exit_z", "f4"),
 ])
 
 # Light-source types for the per-event truth table (muon_truth.source_type)
@@ -81,7 +93,7 @@ LAPPD_READOUT_DTYPE = np.dtype([
     ("n_passed_qe", "i4"),
 ])
 
-# Detector registry (7 columns)
+# Detector registry (7 + 5 columns)
 DETECTOR_DTYPE = np.dtype([
     ("system_code", "i4"),
     ("detector_index", "i4"),
@@ -90,6 +102,31 @@ DETECTOR_DTYPE = np.dtype([
     ("z", "f8"),
     ("label", h5py.string_dtype()),
     ("panel", "i4"),
+    # v2: real-detector identifiers.  PMTs: ToolAnalysis channel key and
+    # detector key (equal for tank PMTs, = WCSim TubeID), cable label, type,
+    # ON/OFF.  LAPPDs: channel_key -1, detector_key = LitePath ID (1000+/2000+).
+    ("channel_key", "i4"),
+    ("detector_key", "i4"),
+    ("cable_label", h5py.string_dtype()),
+    ("pmt_type", h5py.string_dtype()),
+    ("status", h5py.string_dtype()),
+])
+
+# Geometry elements (v2): the simulated detector, one row per element, so a
+# file can be analysed without LitePath's geometry files.
+GEOMETRY_ELEMENT_DTYPE = np.dtype([
+    ("element_id", "i4"),        # detector_key (PMT channel key, LAPPD 1000+/2000+)
+    ("system_code", "i4"),
+    ("detector_index", "i4"),
+    ("x", "f8"),
+    ("y", "f8"),
+    ("z", "f8"),
+    ("dir_x", "f8"),             # inward-facing unit normal
+    ("dir_y", "f8"),
+    ("dir_z", "f8"),
+    ("size_mm", "f8"),           # PMT sphere radius or LAPPD half-side
+    ("type", h5py.string_dtype()),
+    ("status", h5py.string_dtype()),
 ])
 
 # Full hit table for single-shot mode (18 columns)
@@ -120,11 +157,15 @@ DTYPES = {
     "pmt_responses": PMT_RESPONSE_DTYPE,
     "lappd_readouts": LAPPD_READOUT_DTYPE,
     "detectors": DETECTOR_DTYPE,
+    "geometry_elements": GEOMETRY_ELEMENT_DTYPE,
     "hits": FULL_HIT_DTYPE,
 }
 
 # Schema version stamped into every output.h5 root group.
-SCHEMA_VERSION = 1
+# v2 (2026-11): geometry provenance attributes, geometry_elements table,
+# detector identifiers, light_track_length_mm and tank entry/exit points.
+# See "Changes in v2" in docs/BATCH_OUTPUT.md.
+SCHEMA_VERSION = 2
 FORMAT_NAME = "litepath-batch"
 
 
@@ -162,14 +203,35 @@ def _records_to_dataframe(records: np.ndarray) -> pd.DataFrame:
     cols: dict[str, object] = {}
     for name in records.dtype.names:
         val = records[name]
+        if val.dtype == object:  # HDF5 strings (label, cable_label, ...) → str
+            val = np.array([v.decode() if isinstance(v, bytes) else v for v in val], dtype=object)
         cols[name] = list(val) if val.ndim > 1 else val
     return pd.DataFrame(cols)
+
+
+def _add_v2_columns(table: str, df: pd.DataFrame) -> pd.DataFrame:
+    """Fill in the v2 columns of a table read from an older (v1) file."""
+    if table == "muon_truth" and "track_length_mm" in df and "light_track_length_mm" not in df:
+        df["light_track_length_mm"] = df["track_length_mm"]
+        for col in ("tank_entry_x", "tank_entry_y", "tank_entry_z",
+                    "tank_exit_x", "tank_exit_y", "tank_exit_z"):
+            df[col] = np.float32(np.nan)
+    elif table == "detectors" and "label" in df and "channel_key" not in df:
+        def _key(label: str) -> int:
+            return int(label[4:]) if label.startswith("PMT_") and label[4:].isdigit() else -1
+        labels = df["label"].map(lambda v: v.decode() if isinstance(v, bytes) else str(v))
+        df["channel_key"] = labels.map(_key).astype(np.int32)
+        df["detector_key"] = df["channel_key"]
+        for col in ("cable_label", "pmt_type", "status"):
+            df[col] = ""
+    return df
 
 
 def load_table(path: Path | str, table: str) -> pd.DataFrame:
     """Load an HDF5 table as a pandas DataFrame.
 
-    Returns an empty DataFrame if the dataset does not exist.
+    Returns an empty DataFrame if the dataset does not exist.  Tables from
+    v1 files get the v2 columns filled in (see docs/BATCH_OUTPUT.md).
     """
     with h5py.File(path, "r") as f:
         if table not in f:
@@ -177,7 +239,7 @@ def load_table(path: Path | str, table: str) -> pd.DataFrame:
             if dtype is None:
                 return pd.DataFrame()
             return pd.DataFrame({n: [] for n in dtype.names})
-        return _records_to_dataframe(f[table][()])
+        return _add_v2_columns(table, _records_to_dataframe(f[table][()]))
 
 
 def load_all(path: Path | str) -> dict[str, pd.DataFrame]:
@@ -192,7 +254,7 @@ def load_event_lappd_readout(path: str | Path, event_id: int
     Returns ``{detector_index: (28, 256, 2) readout}``, or ``None``
     when *event_id* has no LAPPD readout data.
 
-    Supports the standardized flat ``lappd_readouts`` table (schema v1)
+    Supports the standardized flat ``lappd_readouts`` table (schema v1+)
     and falls back to the older per-event group layout (``event_N/...``).
     """
     with h5py.File(path, "r") as f:
@@ -274,7 +336,8 @@ class BatchReader:
 
     Both the full-detector ``litepath batch`` and the standalone-LAPPD
     ``litepath batch-lappd`` commands write this schema, so a single reader
-    works for either mode.
+    works for either mode.  Reads v1 and v2 files; v1 tables get the v2
+    columns filled in.
 
     Examples
     --------
@@ -304,6 +367,8 @@ class BatchReader:
                 "schema_version": attrs.get("schema_version"),
                 "format": attrs.get("format"),
                 "detector_mode": attrs.get("detector_mode"),
+                "geometry_version": attrs.get("geometry_version"),
+                "geometry_hash": attrs.get("geometry_hash"),
                 "config": attrs.get("config"),
                 "tables": tables,
                 "n_events": len(self.event_ids()),
@@ -388,23 +453,52 @@ class BatchReader:
 # Write helpers for batch mode
 # ---------------------------------------------------------------------------
 
-def write_detectors(path: Path, detectors: list) -> None:
-    """Write detector registry to HDF5."""
-    rows = []
+def _system_code(system: str) -> int:
+    from litepath.hits import DET_SYS_PMT, DET_SYS_LAPPD_DEFAULT, DET_SYS_LAPPD_ANNIE
+    return {
+        "pmt": DET_SYS_PMT,
+        "lappd_default": DET_SYS_LAPPD_DEFAULT,
+        "lappd_annie": DET_SYS_LAPPD_ANNIE,
+    }.get(system, -1)
+
+
+def _pmt_records(pmt_info: dict | None) -> dict:
+    """PMT table records by channel key (empty when there is no table)."""
+    if not pmt_info or "records" not in pmt_info:
+        return {}
+    return {r.channel_key: r for r in pmt_info["records"]}
+
+
+def write_detectors(path: Path, detectors: list, pmt_info: dict | None = None) -> None:
+    """Write the detector registry (``detectors``) and ``geometry_elements``.
+
+    *pmt_info* is ``Geometry.pmt_info``; its PMT table records supply the
+    cable labels and ON/OFF status.
+    """
+    records = _pmt_records(pmt_info)
+    rows, elements = [], []
     for d in detectors:
-        from litepath.hits import DET_SYS_PMT, DET_SYS_LAPPD_DEFAULT, DET_SYS_LAPPD_ANNIE
-        sys_code = {
-            "pmt": DET_SYS_PMT,
-            "lappd_default": DET_SYS_LAPPD_DEFAULT,
-            "lappd_annie": DET_SYS_LAPPD_ANNIE,
-        }.get(d.system, -1)
+        sys_code = _system_code(d.system)
         panel = getattr(d, "panel", -1)
-        rows.append((sys_code, d.index, d.position[0], d.position[1],
-                     d.position[2], str(d.label), panel))
+        if d.system == "pmt":
+            rec = records.get(d.id)
+            channel_key, kind = d.id, d.pmt_type
+            cable = rec.cable_label if rec else ""
+            status = rec.status if rec else "ON"
+            size = d.radius
+        else:
+            channel_key, kind, cable, status = -1, "LAPPD", "", "ON"
+            size = d.half_size
+        rows.append((sys_code, d.index, d.position[0], d.position[1], d.position[2],
+                     str(d.label), panel, channel_key, d.id, cable, kind, status))
+        elements.append((d.id, sys_code, d.index, *d.position, *d.direction,
+                         size, kind, status))
     arr = np.array(rows, dtype=DETECTOR_DTYPE)
+    elem = np.array(elements, dtype=GEOMETRY_ELEMENT_DTYPE)
     with h5py.File(path, "a") as f:
         append_table(f, "detectors", arr)
-    print(f"  Wrote detectors table ({len(rows)} rows) to {path}")
+        append_table(f, "geometry_elements", elem)
+    print(f"  Wrote detectors and geometry_elements tables ({len(rows)} rows) to {path}")
 
 
 def write_metadata(path: Path, meta: dict) -> None:

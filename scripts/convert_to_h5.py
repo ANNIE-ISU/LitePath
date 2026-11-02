@@ -31,6 +31,12 @@ TABLE_COLUMNS = {
 PARQUET_TABLES = ["photon_hits", "muon_truth", "pmt_responses"]
 
 
+def _subset(dtype: np.dtype, names) -> np.dtype:
+    """*dtype* restricted to *names* (the old layouts predate the v2 columns;
+    the readers fill those in, as for v1 files)."""
+    return np.dtype([(n, dtype.fields[n][0]) for n in dtype.names if n in set(names)])
+
+
 def convert_dir(dir_path: Path) -> Path:
     h5_path = dir_path / "output.h5"
     print(f"\n=== {dir_path}  ->  {h5_path} ===")
@@ -45,8 +51,8 @@ def convert_dir(dir_path: Path) -> Path:
         if not pq_file.exists():
             continue
         df = pd.read_parquet(str(pq_file))
-        dtype = TABLE_COLUMNS[table_name]
-        arr = df.to_records(index=False).astype(dtype)
+        dtype = _subset(TABLE_COLUMNS[table_name], df.columns)
+        arr = df[list(dtype.names)].to_records(index=False).astype(dtype)
         with h5py.File(h5_path, "a") as f:
             append_table(f, table_name, arr)
         print(f"  {table_name}: {len(df)} rows")
@@ -55,7 +61,8 @@ def convert_dir(dir_path: Path) -> Path:
     csv_path = dir_path / "detectors.csv"
     if csv_path.exists():
         df = pd.read_csv(csv_path)
-        dtype = TABLE_COLUMNS["detectors"]
+        dtype = _subset(TABLE_COLUMNS["detectors"],
+                        ("system_code", "detector_index", "x", "y", "z", "label", "panel"))
         rows = []
         for _, row in df.iterrows():
             label = str(row.get("label", row.get("Label", "")))

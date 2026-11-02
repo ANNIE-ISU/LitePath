@@ -55,7 +55,8 @@ changed before starting.
 - Hit array column indices are in `hits.py` (HI, HT, HX ... H_SOURCE). `tracer.py`
   is now only a compatibility module; code lives in `geometry/`, `engine/`,
   `sources/` and `simulate.py` (see `docs/README.md` code map)
-- HDF5 schema version is `SCHEMA_VERSION = 1` in `io_h5.py`
+- HDF5 schema version is `SCHEMA_VERSION = 2` in `io_h5.py` (v1 files still read;
+  see "Changes in v2" in `docs/BATCH_OUTPUT.md`)
 - Geometry versions (step 3, in progress): YAML in `geometry/versions/`,
   overlays in `geometry/overlays/`, upstream tables in `geometry/base/`;
   `litepath/geometry/versions.py` (`load_build()`, fingerprint, tagging).
@@ -70,8 +71,9 @@ changed before starting.
   cutoff, NOT a physical range. Muons do not "stop" at the tank wall,
   surfboards or housings, which only block photons (future MRD work relies on
   this). `batch-lappd` (no tank, always in water) stops light once the muon is
-  behind the housing's back-face plane, or at `--max-track-length` (4 m). Renaming
-  the column and storing entry/exit points is planned with the step-3 schema change
+  behind the housing's back-face plane, or at `--max-track-length` (4 m). Schema v2
+  writes it as `light_track_length_mm` (and still as `track_length_mm`) with the
+  tank entry/exit points
 - Detector frame is fixed in `litepath/geometry/frame.py` (z up, +y beam, beam
   at the panel 1|8 corner; checked vs ToolAnalysis, the 2019 layout slides and
   WCSim). Inputs enter only via `table_to_frame` / `tank_to_frame` /

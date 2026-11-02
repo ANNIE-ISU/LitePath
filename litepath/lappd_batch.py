@@ -344,8 +344,10 @@ def run_lappd_batch(
             print(f"  LAPPD readouts: {accumulator._n_lappd_rows} rows "
                   f"across {accumulator._n_lappd_events} events")
         if h5_path.exists() and len(geometry.detectors):
+            from litepath.geometry.versions import standalone_provenance
             from litepath.io_h5 import write_detectors, write_metadata
-            write_metadata(h5_path, {"detector_mode": "lappd-standalone"})
+            write_metadata(h5_path, {"detector_mode": "lappd-standalone",
+                                     **standalone_provenance(geometry)})
             write_detectors(h5_path, geometry.detectors)
             paths["detectors"] = h5_path
         return paths
