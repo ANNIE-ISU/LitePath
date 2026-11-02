@@ -37,7 +37,7 @@ def test_old_flags_give_the_same_fingerprint_as_annie_2022_scan():
     flags = version_from_flags({"gdml": "PHASE2_INNER_STRUCTURE_closed.gdml", **OLD_FULL_FLAGS})
     assert fingerprint(flags) == fingerprint(load_version("annie-2022-scan"))
     # A single changed setting changes the fingerprint
-    other = version_from_flags({**OLD_FULL_FLAGS, "det_rotation": 0.0})
+    other = version_from_flags({**OLD_FULL_FLAGS, "bottom_spin": 22.5})
     assert fingerprint(other) != fingerprint(flags)
 
 

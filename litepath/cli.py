@@ -157,11 +157,11 @@ def build_parser() -> argparse.ArgumentParser:
     viz.add_argument("--lappd-model", choices=["default", "annie"], default="annie",
                      help="LAPPD geometry model (default: bare rectangle; annie: housed LAPPD)")
     viz.add_argument("--bottom-rot", type=float, default=45.0,
-                     help="Extra Z-rotation (deg) for all PMTs, aligning scan mesh with structure (default: 45)")
+                     help="Deprecated and ignored: the detector orientation is fixed (only 45 is accepted)")
     viz.add_argument("--bottom-spin", type=float, default=22.5,
                      help="Per-PMT spin (deg) about forward axis for bottom PMTs (default: 22.5)")
     viz.add_argument("--det-rotation", type=float, default=22.5,
-                     help="Global Z-rotation (deg) so +Y aligns with octagon corner (default: 22.5)")
+                     help="Deprecated and ignored: the detector orientation is fixed (only 22.5 is accepted)")
     viz.add_argument("--surfboard", type=int, default=0, choices=[0, 1, 3],
                      help="Number of obscurant PVC surfboards (0, 1, or 3)")
 
@@ -183,7 +183,7 @@ def build_parser() -> argparse.ArgumentParser:
     detcfg.add_argument("--lappd-model", choices=["default", "annie"], default="default",
                         help="LAPPD geometry model")
     detcfg.add_argument("--det-rotation", type=float, default=22.5,
-                        help="Global Z-rotation (deg) so +Y aligns with octagon corner (default: 22.5)")
+                        help="Deprecated and ignored: the detector orientation is fixed (only 22.5 is accepted)")
 
     lappd = sub.add_parser("viz-lappd", help="Start standalone LAPPD module viewer")
     lappd.add_argument("--host", type=str, default="localhost", help="Host to bind (default: localhost)")
@@ -232,7 +232,7 @@ def build_parser() -> argparse.ArgumentParser:
     batch.add_argument("--lappd-model", choices=["default", "annie"], default="annie",
                        help="LAPPD geometry model")
     batch.add_argument("--det-rotation", type=float, default=22.5,
-                       help="Global Z-rotation (deg) so +Y aligns with octagon corner")
+                       help="Deprecated and ignored: the detector orientation is fixed (only 22.5 is accepted)")
     batch.add_argument("--lappd-indices", type=str, default=None,
                        help="Comma-separated LAPPD candidate indices")
     batch.add_argument("--wavelength", type=float, default=350.0,
@@ -280,7 +280,7 @@ def build_parser() -> argparse.ArgumentParser:
     bench.add_argument("--pmt-csv", type=Path, default=Path("PMTPositions_Scan.txt"),
                        help="PMT scan file used to build the detector registry")
     bench.add_argument("--det-rotation", type=float, default=22.5,
-                       help="Global Z-rotation (deg) matching the raytracer run")
+                       help="Deprecated and ignored: the detector orientation is fixed (only 22.5 is accepted)")
     bench.add_argument("--output-dir", "-o", type=Path, default=Path("results/benchmark"),
                        help="Directory for the converted HDF5 files")
     bench.add_argument("--max-events", type=int, default=0,
@@ -367,7 +367,7 @@ def build_parser() -> argparse.ArgumentParser:
     fit.add_argument("--lappd-model", choices=["default", "annie"], default="annie",
                      help="LAPPD geometry model")
     fit.add_argument("--det-rotation", type=float, default=22.5,
-                     help="Global Z-rotation (deg) so +Y aligns with octagon corner")
+                     help="Deprecated and ignored: the detector orientation is fixed (only 22.5 is accepted)")
     fit.add_argument("--surfboard", type=int, default=0, choices=[0, 1, 3],
                      help="Number of obscurant PVC surfboards (0, 1, or 3)")
     fit.add_argument("--grid-theta", type=str, default="0 180 19",
@@ -616,9 +616,8 @@ def benchmark_command(args: argparse.Namespace) -> None:
         print(f"Error: {exc}")
         return
     pmt_csv = version.inputs["pmt_table"]
-    det_rotation = version.settings["det_rotation_deg"]
     print(f"Building PMT registry from {pmt_csv} (geometry: {version.name})")
-    registry = load_pmt_registry(pmt_csv, det_rotation_deg=det_rotation)
+    registry = load_pmt_registry(pmt_csv)
     print(f"  {len(registry)} PMTs (TubeIDs {registry.tube_id.min()}-"
           f"{registry.tube_id.max()})")
 
@@ -638,7 +637,6 @@ def benchmark_command(args: argparse.Namespace) -> None:
             registry,
             kind=kind,
             source_file=str(src),
-            det_rotation_deg=det_rotation,
             write_raw_hits=not args.no_raw_hits,
         )
         print(f"  Wrote {out_path}")

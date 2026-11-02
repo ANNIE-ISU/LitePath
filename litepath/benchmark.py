@@ -19,24 +19,22 @@ Frames
     in metres, times in ns, charges in PE (``hitQ`` in pC).
 
 ``world`` (litepath)
-    The GDML *structure* frame: ``z`` vertical (up), ``x``/``y`` in the
-    horizontal plane, the tank centred at ``z = WCLength / 2``.  This is
-    the frame the ray tracer works in; the PMT positions are derived from
-    ``PMTPositions_Scan.txt`` (see :mod:`litepath.pmt_loader`).
+    The LitePath frame (:mod:`litepath.geometry.frame`): ``z`` vertical
+    (up), ``+y`` along the beam, the tank centred at ``z = WCLength / 2``.
+    This is the frame the ray tracer works in.
 
-The transform is::
+The transform is the frame's own WCSim conversion
+(:func:`litepath.geometry.frame.tank_to_frame`)::
 
-    world = Rz(det_rotation) · ( Rz(-157.5°) · Rx(+90°) · root + (0, 0, 1980) )
+    world = (−x, z, y + 1980)        (root in mm)
 
-It is *not* fitted to the WAGLE data: the constants come from the litepath
-geometry chain (scan frame → WCSim hall frame → structure frame, see
-:mod:`litepath.pmt_loader`), and the WAGLE data is used to *check* it.
-Two independent checks pass:
+It is *not* fitted to the WAGLE data; the WAGLE data is used to *check*
+it.  Checks made with the earlier, equivalent chain of rotations:
 
-* the hall ↔ ROOT relation is a pure *y/z swap* (``Rx(-90°)``) — a Procrustes
-  fit of the 121 hit PMT point clouds returns that swap, and the free
-  rotation gives the same residual as the constrained one, so there is no
-  hidden azimuthal rotation in the chain;
+* the hall ↔ ROOT relation is a pure *y/z swap* — a Procrustes fit of the
+  121 hit PMT point clouds returns that swap, and the free rotation gives
+  the same residual as the constrained one, so there is no hidden
+  azimuthal rotation;
 * the transformed WAGLE PMT positions agree with the raytracer PMT centres
   to < 0.01 mm radially and < 0.09° in azimuth.  The residual is a constant
   *axial* offset per PMT type (-10.43 mm for the LUX/Watchboy/Watchman 8",
@@ -49,9 +47,11 @@ is looked up by Tube ID, so every hit of a given PMT carries the same
 point.  The ``pmt_hits`` table therefore holds PMT centres, not photocathode
 landing points.
 
-In the litepath world frame the WAGLE beam runs at ``phi = 135°`` (an
-octagon corner of the inner structure); the ``--muon-mode beam`` helper in
-:mod:`litepath.cli` uses ``+Y`` (90°), which is 45° away from it.
+In the litepath world frame the WAGLE beam runs along ``+y`` (``phi = 90°``,
+the octagon corner between barrel panels 1 and 8), the same direction as the
+``--muon-mode beam`` helper in :mod:`litepath.cli`.  Files converted before
+the frame was fixed (they carry a ``det_rotation_deg`` attribute) used a
+frame turned by 45°: their beam runs at ``phi = 135°``.
 
 Units used in the ROOT trees (verified against the geometry)
 ------------------------------------------------------------
@@ -87,6 +87,17 @@ from litepath.io_h5 import (
     PMT_RESPONSE_DTYPE,
     SOURCE_TRACK,
 )
+from litepath.geometry.frame import (
+    TANK_CENTRE_Z_MM,
+    frame_to_tank,
+    frame_to_tank_direction,
+    tank_to_frame,
+    tank_to_frame_direction,
+)
+
+#: Root attribute naming the frame of converted files (older files carry
+#: ``det_rotation_deg`` instead and use a frame turned by 45°).
+FRAME_NAME = "litepath (beam +y, litepath.geometry.frame)"
 
 __all__ = [
     "PMTRegistry",
@@ -112,15 +123,9 @@ __all__ = [
 # Coordinate frames
 # ---------------------------------------------------------------------------
 
-#: Rotation that undoes the WCSim placement of the inner structure.
-STRUCTURE_ROTATION_DEG = -157.5
-
-#: Global Z-rotation applied to the detector registry (litepath default).
-DET_ROTATION_DEG = 22.5
-
-#: Half the water-tank length: the structure frame origin sits this far
-#: below the tank centre (WCLength = 3960 mm).
-HALF_WC_LENGTH = 1980.0
+#: Half the water-tank length: the frame origin sits this far below the
+#: tank centre (WCLength = 3960 mm).
+HALF_WC_LENGTH = TANK_CENTRE_Z_MM
 
 #: Water-tank geometry (mm) — identical to ``litepath.geometry.build.build_geometry``.
 TANK_RADIUS_MM = 1524.0
@@ -191,77 +196,24 @@ def _tank_chord_root(start_mm: np.ndarray, direction: np.ndarray
     return p + lo * d, p + hi * d
 
 
-def _rot_z(points: np.ndarray, angle_deg: float) -> np.ndarray:
-    """Rotate an (..., 3) array about the z axis."""
-    theta = math.radians(angle_deg)
-    c, s = math.cos(theta), math.sin(theta)
-    x = points[..., 0]
-    y = points[..., 1]
-    return np.stack([x * c - y * s, x * s + y * c, points[..., 2]], axis=-1)
+def root_to_world(points: np.ndarray) -> np.ndarray:
+    """Transform ROOT-frame positions (mm, (..., 3)) into the litepath world frame (mm)."""
+    return tank_to_frame(points)
 
 
-def _rot_x(points: np.ndarray, angle_deg: float) -> np.ndarray:
-    """Rotate an (..., 3) array about the x axis."""
-    theta = math.radians(angle_deg)
-    c, s = math.cos(theta), math.sin(theta)
-    y = points[..., 1]
-    z = points[..., 2]
-    return np.stack([points[..., 0], y * c - z * s, y * s + z * c], axis=-1)
-
-
-def root_to_world(points: np.ndarray,
-                  det_rotation_deg: float = DET_ROTATION_DEG) -> np.ndarray:
-    """Transform ROOT-frame positions (mm) into the litepath world frame (mm).
-
-    Parameters
-    ----------
-    points : array_like
-        (..., 3) positions in the ROOT frame, in millimetres.
-    det_rotation_deg : float
-        Global Z-rotation used by the raytracer (``--det-rotation``).
-
-    Returns
-    -------
-    numpy.ndarray
-        (..., 3) positions in the litepath world frame, in millimetres.
-    """
-    p = np.asarray(points, dtype=np.float64)
-    p = _rot_x(p, 90.0)
-    p = _rot_z(p, STRUCTURE_ROTATION_DEG)
-    p = p + np.array([0.0, 0.0, HALF_WC_LENGTH])
-    p = _rot_z(p, det_rotation_deg)
-    return p
-
-
-def world_to_root(points: np.ndarray,
-                  det_rotation_deg: float = DET_ROTATION_DEG) -> np.ndarray:
+def world_to_root(points: np.ndarray) -> np.ndarray:
     """Inverse of :func:`root_to_world` (positions only)."""
-    p = np.asarray(points, dtype=np.float64)
-    p = _rot_z(p, -det_rotation_deg)
-    p = p - np.array([0.0, 0.0, HALF_WC_LENGTH])
-    p = _rot_z(p, -STRUCTURE_ROTATION_DEG)
-    p = _rot_x(p, -90.0)
-    return p
+    return frame_to_tank(points)
 
 
-def root_to_world_direction(directions: np.ndarray,
-                            det_rotation_deg: float = DET_ROTATION_DEG) -> np.ndarray:
+def root_to_world_direction(directions: np.ndarray) -> np.ndarray:
     """Transform ROOT-frame direction vectors into the litepath world frame."""
-    d = np.asarray(directions, dtype=np.float64)
-    d = _rot_x(d, 90.0)
-    d = _rot_z(d, STRUCTURE_ROTATION_DEG)
-    d = _rot_z(d, det_rotation_deg)
-    return d
+    return tank_to_frame_direction(directions)
 
 
-def world_to_root_direction(directions: np.ndarray,
-                            det_rotation_deg: float = DET_ROTATION_DEG) -> np.ndarray:
+def world_to_root_direction(directions: np.ndarray) -> np.ndarray:
     """Inverse of :func:`root_to_world_direction`."""
-    d = np.asarray(directions, dtype=np.float64)
-    d = _rot_z(d, -det_rotation_deg)
-    d = _rot_z(d, -STRUCTURE_ROTATION_DEG)
-    d = _rot_x(d, -90.0)
-    return d
+    return frame_to_tank_direction(directions)
 
 
 def litepath_angles(direction: np.ndarray) -> tuple[float, float]:
@@ -377,7 +329,6 @@ class PMTRegistry:
     panels: np.ndarray         # (N,) int
     types: list[str]
     radii: np.ndarray          # (N,) float (mm)
-    det_rotation_deg: float = DET_ROTATION_DEG
 
     def __post_init__(self) -> None:
         self._by_tube = {int(t): i for i, t in enumerate(self.tube_id)}
@@ -415,8 +366,7 @@ class PMTRegistry:
         return arr
 
 
-def load_pmt_registry(scan_path: Path | str,
-                      det_rotation_deg: float = DET_ROTATION_DEG) -> PMTRegistry:
+def load_pmt_registry(scan_path: Path | str) -> PMTRegistry:
     """Build the :class:`PMTRegistry` from the WCSim scan file.
 
     The scan file order defines the litepath detector indices, so the
@@ -424,7 +374,7 @@ def load_pmt_registry(scan_path: Path | str,
     """
     from litepath.pmt_loader import load_pmts
 
-    pmt = load_pmts(Path(scan_path), det_rotation_deg=det_rotation_deg)
+    pmt = load_pmts(Path(scan_path))
     n = len(pmt["detector_nums"])
     return PMTRegistry(
         tube_id=np.asarray(pmt["detector_nums"], dtype=np.int32),
@@ -434,7 +384,6 @@ def load_pmt_registry(scan_path: Path | str,
         panels=np.asarray(pmt["panels"], dtype=np.int32),
         types=list(pmt["types"]),
         radii=np.asarray(pmt["radii"], dtype=np.float32),
-        det_rotation_deg=det_rotation_deg,
     )
 
 
@@ -461,18 +410,17 @@ class TruthTrack:
     mrd_angle_rad: float = float("nan")
     mrd_length_cm: float = float("nan")
 
-    def pos_world_mm(self, det_rotation_deg: float = DET_ROTATION_DEG) -> np.ndarray:
+    def pos_world_mm(self) -> np.ndarray:
         """Vertex in the litepath world frame (mm)."""
-        return root_to_world(self.pos_root_mm, det_rotation_deg)
+        return root_to_world(self.pos_root_mm)
 
-    def dir_world(self, det_rotation_deg: float = DET_ROTATION_DEG) -> np.ndarray:
+    def dir_world(self) -> np.ndarray:
         """Unit direction in the litepath world frame."""
-        return root_to_world_direction(self.dir_root, det_rotation_deg)
+        return root_to_world_direction(self.dir_root)
 
-    def world_angles(self, det_rotation_deg: float = DET_ROTATION_DEG
-                     ) -> tuple[float, float]:
+    def world_angles(self) -> tuple[float, float]:
         """``(theta_deg, phi_deg)`` in the litepath convention."""
-        return litepath_angles(self.dir_world(det_rotation_deg))
+        return litepath_angles(self.dir_world())
 
     def root_angles(self) -> tuple[float, float]:
         """``(theta_deg, phi_deg)`` in the WAGLE convention."""
@@ -867,9 +815,8 @@ def _truth_row(event: BenchmarkEvent, registry: PMTRegistry,
         bt["track_kind"] = TRUTH_KIND_MRD_RECO
         return mu, bt
 
-    det_rot = registry.det_rotation_deg
-    pos_world = truth.pos_world_mm(det_rot)
-    dir_world = truth.dir_world(det_rot)
+    pos_world = truth.pos_world_mm()
+    dir_world = truth.dir_world()
     theta, phi = litepath_angles(dir_world)
     rtheta, rphi = root_angles(truth.dir_root)
 
@@ -915,7 +862,6 @@ def write_benchmark_h5(
     *,
     kind: str = "data",
     source_file: str = "",
-    det_rotation_deg: float = DET_ROTATION_DEG,
     write_raw_hits: bool = True,
     chunk_events: int = 500,
 ) -> Path:
@@ -938,8 +884,6 @@ def write_benchmark_h5(
         ``"data"`` or ``"mc"`` — recorded in the root attributes.
     source_file : str
         Path of the originating ROOT file (recorded in the root attributes).
-    det_rotation_deg : float
-        Global Z-rotation the transform was built with.
     write_raw_hits : bool
         Write the per-hit ``pmt_hits`` table.
     chunk_events : int
@@ -969,12 +913,11 @@ def write_benchmark_h5(
         f.attrs["detector_mode"] = f"benchmark-{kind}"
         f.attrs["created"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         f.attrs["source_file"] = source_file
-        f.attrs["det_rotation_deg"] = det_rotation_deg
+        f.attrs["frame"] = FRAME_NAME
         f.attrs["config"] = json.dumps({
             "kind": kind,
             "source_file": source_file,
-            "det_rotation_deg": det_rotation_deg,
-            "frame": "world (litepath structure frame, mm)",
+            "frame": FRAME_NAME,
         })
         # Tank geometry — matches litepath.geometry.build.build_geometry so that the
         # standard event display / analysis scripts can use these files.
@@ -1029,8 +972,7 @@ def write_benchmark_h5(
             bt_buf.append(bt)
 
             if write_raw_hits and times.size:
-                pos_world = root_to_world(ev.positions_root_m[good] * 1000.0,
-                                          det_rotation_deg)
+                pos_world = root_to_world(ev.positions_root_m[good] * 1000.0)
                 raw = np.zeros(times.size, dtype=PMT_HIT_DTYPE)
                 raw["event_id"] = ev.event_id
                 raw["pmt_index"] = pmt_index

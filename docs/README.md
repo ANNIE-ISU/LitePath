@@ -109,6 +109,12 @@ deprecation warning, naming the version that builds the same detector if
 there is one. They cannot be combined with `--geometry`, and will be
 removed in a later release.
 
+The detector orientation is fixed, not a setting: everything is built in
+one frame (`litepath/geometry/frame.py`; `z` up, `+y` along the beam, the
+beam pointing at the octagon corner between barrel panels 1 and 8).
+`--det-rotation` and `--bottom-rot` only accept their old values (22.5 and
+45) and do nothing.
+
 ### `batch` — Batch-mode event generation
 
 Runs N events on the GPU, writing results to a single HDF5 file. No
@@ -321,8 +327,8 @@ that fit residuals can be computed for validation.
 - **`viz-server`** — Interactive 3D viewer of the full detector (Three.js
   frontend), served at `http://localhost:8080`.  Takes `--geometry` and
   the `--no-*` switches like `batch`, plus `--host` (default `localhost`)
-  and `--port` (default 8080).  The older `--bottom-rot` and
-  `--bottom-spin` flags are deprecated with the other geometry flags.
+  and `--port` (default 8080).  The older `--bottom-spin` flag is
+  deprecated with the other geometry flags.
 
   PMT position adjustments are saved to the geometry version's
   `pmt-offsets` overlay, and only for a **draft** version: run

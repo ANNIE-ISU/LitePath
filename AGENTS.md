@@ -200,12 +200,12 @@ Both `batch` and `batch-lappd` write the same HDF5 schema (v1):
 - **ROOT (WAGLE) frame**: x horizontal transverse, **y vertical (up)**, **z along the beam**
   (downstream), origin at the tank centre.  The WCSim *hall* frame instead has y
   along the beam and z vertical, so the two differ by a pure y/z swap.
-- **World frame** = litepath structure frame: z vertical, tank axis along z.
-  `world = Rz(det_rotation)·(Rz(-157.5°)·Rx(+90°)·root + (0,0,1980))` — see
+- **World frame** = the fixed LitePath frame (`litepath/geometry/frame.py`): z vertical,
+  +y along the beam. `world = (−x, z, y + 1980)` (`frame.tank_to_frame`) — see
   `litepath/benchmark.py` and `docs/BENCHMARK.md`.
-- The **WAGLE beam runs at φ = 135°** in the world frame (an octagon corner).
-  `litepath batch --muon-mode beam` points along **+Y (90°)**, which is 45°
-  away — a CLI labelling convention, not a frame error.
+- The **WAGLE beam runs along +Y (φ = 90°)**, the octagon corner between panels 1
+  and 8, the same as `litepath batch --muon-mode beam`. Benchmark files converted
+  before 2026-11-02 (`det_rotation_deg` attribute) are in a frame turned by 45°.
 - WAGLE `hitX/Y/Z` is the **PMT centre** (looked up by Tube ID), not a
   per-photon position; WCSim places it 10.4 mm (8") / 23.7 mm (ETEL 10%)
   further outward than the survey position.

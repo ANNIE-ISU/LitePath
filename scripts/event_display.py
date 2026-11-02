@@ -9,9 +9,9 @@ layout:
   Bottom view – bottom endcap PMTs (panel 0) at (x, y) in tank cross-section
 
 The barrel φ axis is centred on the octagon corner the beam looks into
-(auto-detected from the track table; 135° for the WAGLE files, whose beam runs
-at φ = 135°).  ``--center-phi`` overrides that choice.  The azimuth is mirrored
-about the vertical plane so the barrel and endcaps read left-right as seen from
+(auto-detected from the track table; 90° for the WAGLE files, whose beam runs
+along +y; files converted before 2026-11-02 have it at 135°).  ``--center-phi``
+overrides that choice.  The azimuth is mirrored about the vertical plane so the barrel and endcaps read left-right as seen from
 *inside* the tank (the WCSim scan→world map is left-handed; see
 :func:`plot_phi`); the endcap views are also rotated so the beam points up.
 ``--mark-pmt ID ...`` rings/labels specific PMTs (litepath detector index or
@@ -134,7 +134,7 @@ def mean_track_bearing_deg(track_df):
     """Mean azimuth (deg) of the track directions, or ``None`` if unavailable.
 
     Directions are summed as unit transverse vectors, so a beam that runs at a
-    single azimuth (e.g. the WAGLE beam at 135 deg) averages cleanly even with
+    single azimuth (e.g. the WAGLE beam at 90 deg) averages cleanly even with
     per-event jitter.
     """
     if track_df is None or track_df.empty:
@@ -155,7 +155,7 @@ def beam_vertex_phi(track_df, fallback=90.0, step=22.5, offset=0.0):
     The ANNIE Phase II barrel is an octagon whose corners (where two faces
     meet) sit at ``offset + k*step``.  Measured from the PMT positions the
     corner azimuths fall on a 22.5 deg grid (16 corners), and the muon beam
-    runs along one of them (135 deg for WAGLE).  This returns the corner
+    runs along one of them (90 deg for WAGLE).  This returns the corner
     nearest the mean track bearing so the unrolled barrel can be centred on the
     beam-facing region.  Falls back to *fallback* when no track information is
     available.
@@ -634,8 +634,8 @@ def main():
     parser.add_argument("--center-phi", type=float, default=None,
                         help="Azimuth (deg) the unrolled barrel is centred on. "
                              "Default: auto-detect the octagon corner the beam "
-                             "looks into (135 deg for WAGLE, whose beam runs at "
-                             "phi=135 in the litepath world frame).")
+                             "looks into (90 deg for WAGLE, whose beam runs along "
+                             "+y in the litepath world frame).")
     args = parser.parse_args()
 
     if args.input.suffix == ".h5":

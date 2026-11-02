@@ -11,7 +11,6 @@ import numpy as np
 import pytest
 
 from litepath.benchmark import (
-    DET_ROTATION_DEG,
     HALF_WC_LENGTH,
     ROOT_TANK_AXIS_Y_MAX,
     ROOT_TANK_AXIS_Y_MIN,
@@ -121,8 +120,7 @@ def test_root_angles_convention():
 @pytest.fixture(scope="module")
 def registry():
     from pathlib import Path
-    return load_pmt_registry(Path("PMTPositions_Scan.txt"),
-                              det_rotation_deg=DET_ROTATION_DEG)
+    return load_pmt_registry(Path("PMTPositions_Scan.txt"))
 
 
 def test_registry_has_132_pmts(registry: PMTRegistry):
@@ -136,8 +134,7 @@ def test_registry_matches_pmt_loader(registry: PMTRegistry):
     from pathlib import Path
     from litepath.pmt_loader import load_pmts
 
-    pmt = load_pmts(Path("PMTPositions_Scan.txt"),
-                    det_rotation_deg=DET_ROTATION_DEG)
+    pmt = load_pmts(Path("PMTPositions_Scan.txt"))
     assert list(registry.tube_id) == list(pmt["detector_nums"])
     assert np.allclose(registry.positions,
                        np.asarray(pmt["centers"], dtype=float), atol=1e-3)
@@ -290,11 +287,11 @@ def test_pmt_positions_agree_with_the_raytracer(mc_hits, registry: PMTRegistry):
 
 
 @pytest.mark.skipif(not ROOT_AVAILABLE, reason="WAGLE MC ROOT file not available")
-def test_beam_azimuth_is_135_degrees():
-    """In the world frame the WAGLE beam runs at phi = 135 deg.
+def test_beam_azimuth_is_90_degrees():
+    """In the world frame the WAGLE beam runs along +y (phi = 90 deg).
 
-    135 deg is a corner of the inner-structure octagon.  The litepath
-    ``--muon-mode beam`` helper uses +Y (90 deg), which is 45 deg away.
+    90 deg is the octagon corner between barrel panels 1 and 8, the same
+    direction as the litepath ``--muon-mode beam`` helper.
     """
     from litepath.benchmark import RootTreeReader, root_to_world_direction
 
@@ -312,7 +309,7 @@ def test_beam_azimuth_is_135_degrees():
     ang = np.radians(np.asarray(phis))
     mean_phi = math.degrees(math.atan2(float(np.sin(ang).mean()),
                                        float(np.cos(ang).mean()))) % 360.0
-    assert mean_phi == pytest.approx(135.0, abs=2.0)
+    assert mean_phi == pytest.approx(90.0, abs=2.0)
 
 
 @pytest.mark.skipif(not ROOT_AVAILABLE, reason="WAGLE MC ROOT file not available")

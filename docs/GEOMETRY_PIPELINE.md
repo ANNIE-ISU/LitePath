@@ -36,45 +36,36 @@ TubeID  panel_nr  scan_x  scan_y  scan_z  dirx  diry  dirz  pmt_type
 
 **Important:** The `dirx, diry, dirz` columns are **not used** by the raytracer. Directions are assigned purely from the panel number and PMT type, matching WCSim's behaviour.
 
-### 2. WCSim Water-Tank Frame
+### 2. WCSim Tank Frame
 
-Unit: **mm**.  Converted from the scan frame by `pmt_loader._scan_to_tank()`.
+Unit: **mm**, origin at the tank centre: `x` horizontal, `y` up, `z` along the
+beam.  WCSim ROOT output uses it.  The PMT tables are offset from it:
 
-| Axis | Formula | Description |
-|---|---|---|
-| X\_w | `scan_x * 10` | horizontal (same orientation as scan X) |
-| Y\_w | `(168.1 - scan_z) * 10` | beam axis (scan Z is swapped) |
-| Z\_w | `(scan_y + 14.45) * 10` | vertical (scan Y becomes vertical) |
+| Axis | Formula |
+|---|---|
+| x | `scan_x * 10` |
+| y (up) | `(scan_y + 14.45) * 10` |
+| z (beam) | `(scan_z - 168.1) * 10` |
 
-Constants:
-- **168.1 cm** — beam centre Z-position in scan coordinates
-- **14.45 cm** — vertical offset between scan and WCSim frames
+### 3. LitePath Frame
 
-### 3. Structure Rest Frame (GDML Frame)
-
-Unit: **mm**.  The inner structure GDML mesh lives here.  The transformation from the water-tank frame reverses WCSim's Geant4 placement:
-
-```
-Placement: rotateZ(+157.5°), translate(0, 0, -½·WCLength)
-```
-
-To get back to the structure frame:
+Unit: **mm**.  The frame everything is built in, defined once in
+`litepath/geometry/frame.py`: `z` up (`z = 0` is 1980 mm below the tank
+centre), `+y` along the beam, `x = y × z`; the beam points at the octagon
+corner between barrel panels 1 and 8.
 
 ```
-P_s = Rz(-157.5°) · P_w  +  (0, 0, +½·WCLength)
+from the WCSim tank frame:   (x, y, z)  →  (−x, z, y + 1980)        tank_to_frame
+from the PMT tables (cm):    table_to_frame (the offsets above, then tank_to_frame)
+from the GDML structure:     Rz(+22.5°)                              structure_to_frame
 ```
 
-where `WCLength = WCIDHeight = 3960 mm`.  In code (`pmt_loader._tank_to_structure`):
+The 22.5° is WCSim's placement of the structure, `rotateZ(157.5°)` at
+`(0, 0, −½·WCLength)`: Geant4 turns the frame, so the volume turns by −157.5°
+in the tank, and the tank → frame step adds 180°.  Nothing else is rotated; the
+orientation is not a setting.
 
-```python
-x_s = x_w · cos(-157.5°) - y_w · sin(-157.5°)
-y_s = x_w · sin(-157.5°) + y_w · cos(-157.5°)
-z_s = z_w + 1980
-```
-
-The GDML mesh itself uses **Z-up** (X horizontal, Y horizontal, Z vertical) and is **already in this frame** — no coordinate transformation is applied to the mesh vertices.
-
-An optional `--z-offset` (mm) can be added to Z_s after the transform. This exists because some GDML versions use different Z origins than the PMT scan file.
+An optional `z_offset_mm` (geometry version setting) is added to the PMT `z`.
 
 ### 4. Three.js Frame (Visualization)
 
@@ -94,9 +85,9 @@ The interactive `viz_server.py` frontend does **not** perform this swap — it r
 
 Uses `lxml` to parse `<position>` and `<triangular>` elements.  Vertex names follow the pattern `inner_structure.stl_vNNNN`; the parser strips the prefix and uses the numeric index directly.  Returns `(vertices: float32[N,3], triangles: int32[M,3])`.
 
-### `pmt_loader.py` — WCSim PMT Scan File
+### `pmt_loader.py` — PMT Tables
 
-Applies the three-stage transform described above.  Also assigns per-PMT radii and directions:
+Converts each row with `table_to_frame` (above).  Also assigns per-PMT radii and directions:
 
 | Type | Panel | Direction | Radius |
 |---|---|---|---|

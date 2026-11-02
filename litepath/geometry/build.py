@@ -12,6 +12,7 @@ import numpy as np
 from litepath import gdml_parser, step_parser
 from litepath import pmt_loader
 from litepath import pmt_mesh
+from litepath.geometry.frame import structure_to_frame
 from litepath.step_parser import LAPPD_HALF_SIZE
 
 
@@ -358,9 +359,7 @@ def build_geometry(
     no_pmt_holders: bool = False,
     z_offset: float = 0.0,
     lappd_model: str = "default",
-    bottom_rotation_deg: float = 45.0,
     bottom_spin_deg: float = 0.0,
-    det_rotation_deg: float = 22.5,
     n_surfboards: int = 0,
     pmt_offsets: Optional[dict[int, tuple[float, float, float]]] = None,
 ) -> Geometry:
@@ -375,9 +374,13 @@ def build_geometry(
       6. Build the detector registry (stable ID → DetectorInfo mapping).
       7. Load PMT body/hardware meshes (skipped when no_pmt_holders=True).
 
+    Everything is built in the LitePath frame (litepath.geometry.frame):
+    the PMT table and the GDML/STEP inputs each go through one fixed
+    conversion; nothing is rotated afterwards.
+
     *pmt_offsets* maps channel key to an (dx, dy, dz) shift in mm, in the
-    final structure frame (after all rotations), applied to the PMT sphere
-    centre and mesh instance position (see litepath.geometry.versions).
+    LitePath frame, applied to the PMT sphere centre and mesh instance
+    position (see litepath.geometry.versions).
     """
     # ---- Stage 1: parse the GDML structure mesh ----
     if no_gdml:
@@ -395,8 +398,7 @@ def build_geometry(
             print(f"  Structure mesh: {len(verts)} verts, {len(tris)} tris (cached)")
         else:
             verts, tris = gdml_parser.parse_gdml(gdml_path)
-        if det_rotation_deg != 0.0 and verts.shape[0] > 0:
-            pmt_loader.rotate_z(verts, det_rotation_deg)
+        verts = structure_to_frame(verts)
 
     # ---- Stage 1b: build BVH for structure mesh ----
     from litepath.bvh import build_bvh
@@ -408,9 +410,7 @@ def build_geometry(
     pmt_directions = np.zeros((0, 3), dtype=np.float32)
     if pmt_csv_path and pmt_csv_path.exists():
         pmt_data = pmt_loader.load_pmts(pmt_csv_path, z_offset=z_offset,
-                                         bottom_rotation_deg=bottom_rotation_deg,
-                                         bottom_spin_deg=bottom_spin_deg,
-                                         det_rotation_deg=det_rotation_deg)
+                                         bottom_spin_deg=bottom_spin_deg)
         if pmt_offsets:
             for i, key in enumerate(pmt_data["detector_nums"]):
                 if key in pmt_offsets:
@@ -422,11 +422,13 @@ def build_geometry(
         pmt_directions = pmt_data["directions"]
     elif manifest_path and manifest_path.exists():
         manifest = step_parser.ComponentManifest.from_json(manifest_path)
-        pmt_centers = np.array(manifest.pmt_centers, dtype=np.float32) if manifest.pmt_centers else np.zeros((0, 3), dtype=np.float32)
+        pmt_centers = (structure_to_frame(np.array(manifest.pmt_centers, dtype=np.float32))
+                       if manifest.pmt_centers else np.zeros((0, 3), dtype=np.float32))
         pmt_radii = np.full(len(pmt_centers), manifest.pmt_radius, dtype=np.float32) if len(pmt_centers) > 0 else np.zeros(0, dtype=np.float32)
     elif step_path:
         manifest = step_parser.parse_step(step_path)
-        pmt_centers = np.array(manifest.pmt_centers, dtype=np.float32) if manifest.pmt_centers else np.zeros((0, 3), dtype=np.float32)
+        pmt_centers = (structure_to_frame(np.array(manifest.pmt_centers, dtype=np.float32))
+                       if manifest.pmt_centers else np.zeros((0, 3), dtype=np.float32))
         pmt_radii = np.full(len(pmt_centers), manifest.pmt_radius, dtype=np.float32) if len(pmt_centers) > 0 else np.zeros(0, dtype=np.float32)
     else:
         pmt_centers = np.zeros((0, 3), dtype=np.float32)
@@ -461,6 +463,11 @@ def build_geometry(
             lappd_sources = [tuple(manifest.lappd_candidates[i].center) for i in DEFAULT_LAPPD_INDICES
                             if i < len(manifest.lappd_candidates)]
 
+    if lappd_sources:
+        # STEP manifest positions are in the GDML structure frame
+        lappd_sources = [tuple(float(v) for v in c)
+                         for c in structure_to_frame(np.asarray(lappd_sources, dtype=np.float64))]
+
     # ---- Surfboard obscurant panels (needed before Stage 5) ----
     surfboard_data = build_surfboards(n_surfboards, tank_z_min, tank_z_max)
 
@@ -472,11 +479,11 @@ def build_geometry(
     lappd_strip_axes = np.zeros((0, 3), dtype=np.float32)
     housing_source: tuple[float, float, float] | None = None
     if lappd_sources:
-        # If ANNIE model, place housing on an octagon vertex (22.5° from panel centre)
+        # If ANNIE model, place housing on the octagon corner at 45°
         if lappd_model == "annie" and len(lappd_sources) > 0:
             tank_cz = (tank_z_min + tank_z_max) / 2.0
             # Position housing so its back (+Z) face nearly touches
-            # the cylindrical column at the octagon corner (r≈1304 at 22.5°).
+            # the cylindrical column at the octagon corner (r≈1304 at 45°).
             # The housing is 60 mm thick; centre is 30 mm inward from column.
             z_replaced = min(lappd_sources, key=lambda s: abs(s[2] - tank_cz))[2]
             from litepath.lappd_model import CORRECTION
@@ -484,9 +491,8 @@ def build_geometry(
             half_thick = 30.0
             center_r = column_r - half_thick          # 1274 mm
             input_r  = center_r / CORRECTION           # pre-correction radius
-            cos22 = np.cos(np.radians(22.5))
-            sin22 = np.sin(np.radians(22.5))
-            housing_source = (input_r * cos22, input_r * sin22, z_replaced)
+            corner = np.radians(45.0)
+            housing_source = (input_r * np.cos(corner), input_r * np.sin(corner), z_replaced)
             rect_sources = [s for s in lappd_sources if s[2] != z_replaced]
         else:
             rect_sources = lappd_sources
@@ -506,11 +512,6 @@ def build_geometry(
             strip_list.append([0.0, 0.0, 1.0])
         lappd_data = np.array(lappd_list, dtype=np.float32) if lappd_list else np.zeros((0, 7), dtype=np.float32)
         lappd_strip_axes = np.array(strip_list, dtype=np.float32) if strip_list else np.zeros((0, 3), dtype=np.float32)
-        if det_rotation_deg != 0.0 and lappd_data.shape[0] > 0:
-            pmt_loader.rotate_z(lappd_data[:, :3], det_rotation_deg)
-            # Also rotate the inward-normal direction (columns 3:6)
-            pmt_loader.rotate_z(lappd_data[:, 3:6], det_rotation_deg)
-            # Strip axis is Z-up (0,0,1) for barrel LAPPDs — stays unchanged by Z rotation
 
     # ---- Stage 5: ANNIE LAPPD housing model ----
     # When --lappd-model=annie, replaces the default rectangle closest to
@@ -527,16 +528,6 @@ def build_geometry(
 
         housing = build_housing((cx, cy, cz), normal)
         lappd_housing_data, annie_lappd_data = housing_to_arrays(housing)
-        if det_rotation_deg != 0.0:
-            if lappd_housing_data.shape[0] > 0:
-                # Columns: 0:3=centre, 3:6=ax, 6:9=ay, 9:12=az, 12:15=half (scalars), 15=pad
-                pmt_loader.rotate_z(lappd_housing_data[:, 0:3], det_rotation_deg)
-                pmt_loader.rotate_z(lappd_housing_data[:, 3:6], det_rotation_deg)
-                pmt_loader.rotate_z(lappd_housing_data[:, 6:9], det_rotation_deg)
-                pmt_loader.rotate_z(lappd_housing_data[:, 9:12], det_rotation_deg)
-            if annie_lappd_data.shape[0] > 0:
-                pmt_loader.rotate_z(annie_lappd_data[:, 0:3], det_rotation_deg)
-                pmt_loader.rotate_z(annie_lappd_data[:, 3:6], det_rotation_deg)
 
     # ---- Stage 5b: surfboard-mounted LAPPD housings ----
     # Builds a housing in front of each surfboard (independent of Stage 5 housing source).

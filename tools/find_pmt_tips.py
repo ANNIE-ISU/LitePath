@@ -3,9 +3,9 @@
 For each PMT in the metrological scan, locate the bulb tip (the furthest
 point along the PMT's outward direction, where the tape X was placed).
 
-Strategy: use the known CSV PMT positions (transformed to GDML frame via
-pmt_loader.py pipeline) as seeds, then search the AllPMTs scan mesh for
-the tip vertex in each PMT's local neighborhood.
+Strategy: use the PMT positions as LitePath places them, taken back into
+the GDML structure frame the scan meshes are registered in, as seeds; then
+search the AllPMTs scan mesh for the tip vertex in each PMT's neighborhood.
 
 PMT tip directions:
   - Bottom PMTs (LUX, panel 0):  tip points upward  → max Z
@@ -20,7 +20,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import math
 from pathlib import Path
 
 import numpy as np
@@ -51,27 +50,20 @@ def transform_csv_to_gdml() -> tuple[np.ndarray, np.ndarray, np.ndarray,
 
     Returns (centers_mm, tube_ids, panel_nrs, dirs, type_codes).
     """
+    from litepath.geometry.frame import frame_to_structure
+    from litepath.pmt_loader import load_pmts
+
     data = np.loadtxt(CSV_PATH, delimiter="\t")
     tube_ids = data[:, 0].astype(int)
     panel_nrs = data[:, 1].astype(int)
-    scan_xyz = data[:, 2:5]  # cm
     dirs = data[:, 5:8]
     type_codes = data[:, 8].astype(int)
 
-    # _scan_to_tank (cm → mm)
-    x_w = scan_xyz[:, 0] * 10.0
-    y_w = (168.1 - scan_xyz[:, 2]) * 10.0
-    z_w = (scan_xyz[:, 1] + 14.45) * 10.0
-
-    # _tank_to_structure: Rz(-157.5°) + z+1980
-    rot = math.radians(-157.5)
-    c = math.cos(rot)
-    s = math.sin(rot)
-    x_s = x_w * c - y_w * s
-    y_s = x_w * s + y_w * c
-    z_s = z_w + 1980.0
-
-    centers = np.column_stack([x_s, y_s, z_s])
+    # PMT positions as LitePath builds them, taken back into the GDML
+    # structure frame the scan meshes are registered in
+    pmts = load_pmts(CSV_PATH)
+    assert list(pmts["detector_nums"]) == list(tube_ids)
+    centers = frame_to_structure(np.asarray(pmts["centers"], dtype=np.float64))
     return centers, tube_ids, panel_nrs, dirs, type_codes
 
 

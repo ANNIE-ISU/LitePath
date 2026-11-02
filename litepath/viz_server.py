@@ -13,7 +13,6 @@ from __future__ import annotations
 import copy
 import csv
 import json
-import math
 import os
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -23,7 +22,7 @@ from urllib.parse import urlparse, parse_qs
 
 import numpy as np
 
-from litepath.pmt_loader import rotate_z
+from litepath.geometry.frame import structure_to_frame
 from litepath.pmt_mesh import build_viz_caches
 from litepath.geometry.build import reload_lappd_corrections
 from litepath.geometry.versions import editable_overlay, read_pmt_offsets, write_pmt_offsets
@@ -61,15 +60,17 @@ PMT_TIPS_CACHE: list[dict] | None = None  # loaded from pmt_tip_positions.csv
 SCAN_MESH_DIR = Path("scan files by part") / "transformed"
 SCAN_MESH_CACHE: dict[str, tuple[bytes, bytes]] = {}  # name -> (verts_bytes, tris_bytes)
 
-def _load_scan_mesh(name: str, det_rotation_deg: float = 0.0):
-    """Load a pre-processed scan mesh from .npy files into the cache."""
+def _load_scan_mesh(name: str):
+    """Load a pre-processed scan mesh from .npy files into the cache.
+
+    The meshes are stored in the GDML structure frame.
+    """
     verts_path = SCAN_MESH_DIR / f"{name}_verts.npy"
     tris_path = SCAN_MESH_DIR / f"{name}_tris.npy"
     if verts_path.exists() and tris_path.exists():
         verts = np.load(verts_path)
         tris = np.load(tris_path)
-        if det_rotation_deg != 0.0:
-            rotate_z(verts, det_rotation_deg)
+        verts = structure_to_frame(verts)
         SCAN_MESH_CACHE[name] = (verts.tobytes(), tris.tobytes())
         return True
     return False
@@ -2661,7 +2662,6 @@ def run_server(args):
     if build is None:
         return
     geometry = build.geometry
-    det_rotation = build.version.settings["det_rotation_deg"]
     print(f"  Mesh: {geometry.mesh_vertices.shape[0]} verts, {geometry.mesh_triangles.shape[0]} tris")
     print(f"  PMTs: {geometry.pmt_centers.shape[0]}")
     if geometry.pmt_info is None:
@@ -2687,7 +2687,6 @@ def run_server(args):
 
     # Load scan mesh overlays
     print("Loading scan overlays...")
-    _det_rot = det_rotation
     for _sn in [
         "AllPMTs", "SuperStructure", "BottomLayer", "TopLayer",
         "Panel-1", "Panel-2", "Panel-3", "Panel-4", "Panel-5", "Panel-6", "Panel-7", "Panel-8",
@@ -2695,7 +2694,7 @@ def run_server(args):
         "Panel-5-PMTs", "Panel-6-PMTs", "Panel-7-PMTs", "Panel-8-PMTs",
         "TopPMTs", "BottomPMTs", "TankLid",
     ]:
-        if _load_scan_mesh(_sn, det_rotation_deg=_det_rot):
+        if _load_scan_mesh(_sn):
             _n = len(np.load(SCAN_MESH_DIR / f"{_sn}_verts.npy"))
             print(f"  Scan mesh '{_sn}': {_n} verts")
 
@@ -2704,7 +2703,6 @@ def run_server(args):
     _tips_path = SCAN_MESH_DIR / "pmt_tip_positions.csv"
     if _tips_path.exists():
         tips = []
-        _tip_rot = det_rotation
         with open(_tips_path, newline="") as f:
             reader = csv.DictReader(f)
             for row in reader:
@@ -2714,12 +2712,9 @@ def run_server(args):
                 csv_x = float(row["csv_x"])
                 csv_y = float(row["csv_y"])
                 csv_z = float(row["csv_z"])
-                if _tip_rot != 0.0:
-                    theta = math.radians(_tip_rot)
-                    c = math.cos(theta)
-                    s = math.sin(theta)
-                    tip_x, tip_y = tip_x * c - tip_y * s, tip_x * s + tip_y * c
-                    csv_x, csv_y = csv_x * c - csv_y * s, csv_x * s + csv_y * c
+                # Tip positions are in the GDML structure frame
+                tip_x, tip_y, tip_z = structure_to_frame((tip_x, tip_y, tip_z))
+                csv_x, csv_y, csv_z = structure_to_frame((csv_x, csv_y, csv_z))
                 tips.append({
                     "tube_id": int(row["tube_id"]),
                     "panel": int(row["panel"]),

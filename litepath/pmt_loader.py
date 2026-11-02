@@ -1,31 +1,16 @@
-"""Load PMT positions from WCSim scan file, mapping to GDML coordinate frame.
+"""Load PMT positions from a PMT table into the LitePath frame.
 
-Coordinate pipeline (scan → WCBarrel frame → structure rest frame):
+Positions go straight from the table into the frame with
+``litepath.geometry.frame.table_to_frame`` (one fixed conversion, no
+rotation settings; see that module for the frame definition).
 
-  WCSim's ConstructANNIECylinderScan transforms scan columns (cm):
-       pmt_x, pmt_y, pmt_z
-    into WCBarrel (water volume) coordinates (mm):
-       X_w  = pmt_x * 10
-       Y_w  = (168.1 - pmt_z) * 10   (beam axis)
-       Z_w  = (pmt_y + 14.45) * 10   (vertical)
-    where 168.1 cm = beam centre, 14.45 cm = vertical offset.
+Direction vectors are generated from the panel number / PMT type (matching
+WCSim's per-face rotation matrices) rather than using the table's direction
+columns, which are not used by WCSim:
 
-  PMTs are placed directly into logicWCBarrel (water volume inside the
-  steel tank). The inner structure GDML is placed in the same water
-  volume with: rotateZ(157.5°), G4ThreeVector(0, 0, -0.5*WCLength).
-  To get back to the structure rest frame (GDML frame):
-       P_s = Rz(-157.5°) * P_w + (0, 0, 0.5*WCLength)
-
-  Note: The viz server additionally applies Rx(-90°) at the frontend
-  layer to both the structure mesh and PMT positions so the cylinder
-  axis aligns with Y for display.
-
-  3. Direction vectors are generated from the panel_nr / PMT type
-      (matching WCSim's per-face rotation matrices) rather than using
-      the scan file direction columns, which are not used by WCSim.
-      - Bottom PMTs (LUX)   →  (0, 0, 1)   upward
-      - Top PMTs (ETEL)     →  (0, 0, -1)  downward
-      - Barrel PMTs         →  radially inward in the XY plane
+- Bottom PMTs (LUX)   →  (0, 0, 1)   upward
+- Top PMTs (ETEL)     →  (0, 0, -1)  downward
+- Barrel PMTs         →  inward normal of their octagon face
 """
 from __future__ import annotations
 
@@ -34,28 +19,7 @@ from pathlib import Path
 
 import numpy as np
 
-# ---------------------------------------------------------------------------
-# Hall-frame constants (from scan-file metrology)
-# ---------------------------------------------------------------------------
-# Beam centre Z-position in scan coordinates (cm)
-BEAM_CENTER_Z = 168.1  # cm
-# Vertical offset between scan and hall frames (cm)
-VERTICAL_OFFSET = 14.45  # cm
-
-# ---------------------------------------------------------------------------
-# Structure placement in water tank
-# ---------------------------------------------------------------------------
-# The GDML structure is placed in the water tank with:
-#   rotateZ(157.5°) at G4ThreeVector(0, 0, -0.5*WCLength)
-# WCLength = WCIDHeight = 3960 mm
-WC_LENGTH = 3960.0  # mm
-HALF_WC_LENGTH = WC_LENGTH / 2.0  # 1980 mm
-
-# Rotation angle to undo the structure placement
-STRUCTURE_ROTATION_DEG = 157.5
-_rot_rad = math.radians(-STRUCTURE_ROTATION_DEG)
-_cos_r = math.cos(_rot_rad)
-_sin_r = math.sin(_rot_rad)
+from litepath.geometry.frame import barrel_face_normal, table_to_frame
 
 # ---------------------------------------------------------------------------
 # PMT radii by type (mm)
@@ -129,72 +93,21 @@ PMT_FORWARD_OFFSET: dict[str, float] = {
 }
 
 
-def _scan_to_tank(scan_x: float, scan_y: float, scan_z: float
-                  ) -> tuple[float, float, float]:
-    """Convert scan coordinates (cm) to hall frame (mm)."""
-    x_h = scan_x * 10.0
-    y_h = (BEAM_CENTER_Z - scan_z) * 10.0
-    z_h = (scan_y + VERTICAL_OFFSET) * 10.0
-    return x_h, y_h, z_h
-
-
-def _tank_to_structure(x_w: float, y_w: float, z_w: float
-                       ) -> tuple[float, float, float]:
-    """Transform from WCBarrel (water tank) frame to structure rest frame.
-
-    Undoes the WCSim structure placement: Rz(157.5°) + (0,0,-0.5*WCLength).
-    PMT scan positions (already in WCBarrel frame) map directly to the
-    GDML frame where the structure mesh lives.
-    """
-    x_s = x_w * _cos_r - y_w * _sin_r
-    y_s = x_w * _sin_r + y_w * _cos_r
-    z_s = z_w + HALF_WC_LENGTH
-    return x_s, y_s, z_s
-
-
-def rotate_z(points: np.ndarray, angle_deg: float) -> np.ndarray:
-    """Rotate (N,3) array of positions/directions by angle_deg around Z (in-place)."""
-    theta = math.radians(angle_deg)
-    c = math.cos(theta)
-    s = math.sin(theta)
-    x = points[:, 0].copy()
-    y = points[:, 1].copy()
-    points[:, 0] = x * c - y * s
-    points[:, 1] = x * s + y * c
-    return points
-
-
-def _ideal_direction(pmt_type: str, x_s: float, y_s: float
+def _ideal_direction(pmt_type: str, x: float, y: float
                      ) -> tuple[float, float, float]:
-    """Return the ideal inward-pointing unit direction in structure frame.
-
-    LUX (bottom) → upward (+Z)
-    ETEL (top)   → downward (-Z)
-    Barrel types → octagon face inward normal in XY plane
-    """
+    """Return the ideal inward-pointing unit direction in the frame."""
     if pmt_type == "LUX":
         return 0.0, 0.0, 1.0
     if pmt_type == "ETEL":
         return 0.0, 0.0, -1.0
-    # Barrel — octagon face inward normal (closest of 8 faces)
-    r = math.sqrt(x_s * x_s + y_s * y_s)
-    if r > 1e-6:
-        az = math.atan2(y_s, x_s)
-        k = round(az / (math.pi / 4))
-        face_angle = k * math.pi / 4
-        return (-math.cos(face_angle), -math.sin(face_angle), 0.0)
+    if x * x + y * y > 1e-12:
+        return barrel_face_normal(x, y)
     return 0.0, 0.0, 1.0
 
 
 def load_pmts(scan_path: Path, z_offset: float = 0.0,
-              bottom_rotation_deg: float = 0.0,
-              bottom_spin_deg: float = 0.0,
-              det_rotation_deg: float = 22.5) -> dict:
-    """Read a PMT table and return PMT data in structure rest frame.
-
-    Pipeline: scan (cm) → hall frame (mm) → structure rest frame.
-    The hall→structure step applies Rx(-90°) (cylinder-axis alignment)
-    then Rz(-157.5°) + (0,0,+1980) (undo WCSim placement).
+              bottom_spin_deg: float = 0.0) -> dict:
+    """Read a PMT table and return PMT data in the LitePath frame.
 
     Args:
         scan_path: PMT table: a WCSim scan file (``PMTPositions_Scan.txt``)
@@ -202,9 +115,6 @@ def load_pmts(scan_path: Path, z_offset: float = 0.0,
                    :mod:`litepath.geometry.elements`).
         z_offset: Additional vertical shift (mm) applied after the
                   standard transform.  Use this to fine-tune alignment.
-        bottom_rotation_deg: Extra rotation about Z for panel-0 (bottom)
-                             PMTs only, in degrees.  Multiples of 22.5°
-                             align with the 4-fold bottom structure.
         bottom_spin_deg: Extra spin about the tube's own forward axis for
                          panel-0 (bottom) PMTs only, in degrees.  Rotates
                          the mesh orientation without changing the position.
@@ -231,47 +141,17 @@ def load_pmts(scan_path: Path, z_offset: float = 0.0,
     type_names = []
     det_nums = []
 
-    # Precompute bottom rotation (negate: visual alignment requires the
-    # opposite sign from the standard CCW rotation matrix)
-    _brot = -math.radians(bottom_rotation_deg)
-    _bcos = math.cos(_brot)
-    _bsin = math.sin(_brot)
+    frame_xyz = table_to_frame(scan_xyz)  # mm
+    frame_xyz[:, 2] += z_offset
 
     for i in range(n):
-        sx, sy, sz = scan_xyz[i]
-
-        # Scan → WCBarrel (water tank) frame
-        x_w, y_w, z_w = _scan_to_tank(sx, sy, sz)
-
-        # WCBarrel → structure rest frame (undo WCSim placement)
-        x_s, y_s, z_s = _tank_to_structure(x_w, y_w, z_w)
-
-        # Vertical offset
-        z_s += z_offset
-
-        # Extra Z-rotation for bottom panel (panel 0)
-        if bottom_rotation_deg != 0.0:
-            xs = x_s
-            x_s = xs * _bcos - y_s * _bsin
-            y_s = xs * _bsin + y_s * _bcos
-
-        # PMT type
+        x, y, z = frame_xyz[i]
         ptype = records[i].pmt_type
-        radius = PMT_RADII.get(ptype, 127.0)
-
-        # Idealized inward-pointing direction
-        dx_s, dy_s, dz_s = _ideal_direction(ptype, x_s, y_s)
-
-        centers[i] = [x_s, y_s, z_s]
-        radii[i] = radius
-        directions[i] = [dx_s, dy_s, dz_s]
+        centers[i] = [x, y, z]
+        radii[i] = PMT_RADII.get(ptype, 127.0)
+        directions[i] = _ideal_direction(ptype, x, y)
         type_names.append(ptype)
         det_nums.append(int(tube_ids[i]))
-
-    # Apply global detector rotation (Z-axis) to all PMT positions and directions
-    if det_rotation_deg != 0.0:
-        rotate_z(centers, det_rotation_deg)
-        rotate_z(directions, det_rotation_deg)
 
     # After the loop, compute per-PMT mesh type index and rotation quaternion
     mesh_type_indices = np.array([PMT_MESH_TYPE.get(t, 0) for t in type_names], dtype=np.int32)

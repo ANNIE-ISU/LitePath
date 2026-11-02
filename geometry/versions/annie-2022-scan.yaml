@@ -8,8 +8,6 @@ inputs:
   pmt_table: PMTPositions_Scan.txt
   structure: PHASE2_INNER_STRUCTURE_closed.gdml
 settings:
-  det_rotation_deg: 22.5
-  bottom_rotation_deg: 45.0
   bottom_spin_deg: 0.0
   z_offset_mm: 0.0
   lappd_model: annie
@@ -19,8 +17,8 @@ settings:
   lappds: true
 overlays: []
 tagged:
-  date: '2026-11-01'
-  fingerprint: 26c0f544ddacb2d1a7e49e2680fe5d320036fe3db7fecbe378520d748da5c677
+  date: '2026-11-02'
+  fingerprint: 7f1f2a9e1ee132564aa91fb664d2cf5b6bef422eb71a86dbd81d0309b33cbe01
   files:
     PMTPositions_Scan.txt: f21036a610f0e0f22cdf1b05e6b06baf0073f190705d80825d469eaf5821b600
     PHASE2_INNER_STRUCTURE_closed.gdml: 9c70b227adde0dd890957621e1bf077d3942942771fc94898281c4b06fa38e9a

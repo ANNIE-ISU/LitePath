@@ -48,8 +48,8 @@ def test_swap_is_exactly_453_455(tables):
 
 
 def test_load_pmts_places_both_tables_alike():
-    ta = load_pmts(TOOLANALYSIS, bottom_rotation_deg=45.0)
-    scan = load_pmts(SCAN, bottom_rotation_deg=45.0)
+    ta = load_pmts(TOOLANALYSIS)
+    scan = load_pmts(SCAN)
     assert ta["detector_nums"] == scan["detector_nums"]
     assert ta["types"] == scan["types"] and ta["panels"] == scan["panels"]
     same = [i for i, k in enumerate(ta["detector_nums"]) if k not in SWAPPED]

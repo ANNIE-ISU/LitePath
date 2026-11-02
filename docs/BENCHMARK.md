@@ -29,7 +29,7 @@ Outputs `results/benchmark/data.h5` and `results/benchmark/mc.h5`.
 |------|---------|-------------|
 | `--data` / `--mc` | — | ROOT files to convert (at least one required) |
 | `--tree` | `Event` | TTree name inside the ROOT files |
-| `--geometry` | `annie-2022-scan` | Geometry version whose PMT table and detector rotation build the registry; use the version of the LitePath runs you compare with (`--pmt-csv` and `--det-rotation` are deprecated) |
+| `--geometry` | `annie-2022-scan` | Geometry version whose PMT table builds the registry; use the version of the LitePath runs you compare with (`--pmt-csv` is deprecated) |
 | `--output-dir` / `-o` | `results/benchmark` | Output directory |
 | `--max-events` | `0` (all) | Convert at most N events per file |
 | `--no-raw-hits` | false | Skip the per-hit `pmt_hits` table |
@@ -49,20 +49,19 @@ the 121 hit PMT point clouds: the fitted rotation *is* that swap, and a free
 rotation gives the same residual (12.7 mm) as the constrained swap
 (12.5 mm), so nothing is hidden in the chain.
 
-litepath world frame: **z** vertical, tank axis along z, tank spans
-z = 19…3861 mm, radius 1524 mm.
+litepath world frame: the fixed LitePath frame (`litepath/geometry/frame.py`):
+**z** vertical, tank axis along z, tank spans z = 19…3861 mm, radius 1524 mm,
+**+y along the beam**.
 
-The transform comes from the litepath geometry chain (scan frame → hall
-frame → structure frame, see `litepath/pmt_loader.py`) and is **not fitted to
-the WAGLE data**:
+The transform is the frame's WCSim conversion (`frame.tank_to_frame`) and is
+**not fitted to the WAGLE data**:
 
 ```
-world = Rz(det_rotation) · ( Rz(-157.5°) · Rx(+90°) · root + (0, 0, 1980) )
+world = (−x, z, y + 1980)        (root in mm)
 ```
 
-with `det_rotation = 22.5°` by default — the same value the raytracer uses
-(`litepath pmt_loader.load_pmts`). `litepath.benchmark` exposes
-`root_to_world`, `world_to_root` and the direction-only variants.
+`litepath.benchmark` exposes `root_to_world`, `world_to_root` and the
+direction-only variants.
 
 Note: the WCSim tank centre maps to z = 1980 mm while the water tank
 mid-plane is at z = 1940 mm — a known 40 mm offset between the two
@@ -73,26 +72,24 @@ conventions.
 | Check | Result |
 |---|---|
 | PMT radial position (transformed WAGLE vs. raytracer centre) | < 0.01 mm |
-| PMT azimuth | < 0.09° |
+| PMT azimuth (102,145 MC hits) | < 0.09° |
 | hall ↔ ROOT rotation | pure y/z swap (Procrustes fit) |
-| GDML inner-structure panels vs. PMT rows | panels at 22.5° + k·45°, PMT rows straddle them at ±8.5° → `det_rotation = 22.5°` is the correct GDML↔PMT alignment |
-| Beam azimuth, MC truth muon directions (400 events) | 135.2° (σ = 10.5°) |
-| Beam azimuth, MRD track start points | 134.6° |
-| Track exit point azimuth | 135.1° |
+| Beam azimuth, MC truth muon directions (401 events) | 90.2° (σ = 10.4°) |
 
-### The beam is at φ = 135°, not at +Y
+The benchmark registry and `litepath batch` use the same PMT positions
+(`tests/test_frame.py`).
 
-In the litepath world frame the WAGLE beam runs at **φ = 135°**, which is a
-corner of the inner-structure octagon (the panels are centred on
-22.5° + k·45°, so the corners are at 45° + k·45°).
+### The beam is along +Y (φ = 90°)
 
-`litepath batch --muon-mode beam` points the muon along **+Y** (φ = 90°),
-which is the *neighbouring* octagon corner — 45° away from the WAGLE beam.
-That is a labelling convention of the CLI, not a frame error: the GDML, the
-PMT registry and the WAGLE data all agree with each other.  When comparing
-WAGLE events with raytracer output, remember that the beam is at 135°, and the
-event display centres the barrel on the beam-facing octagon corner
-automatically:
+The WAGLE beam runs along **+Y**, the octagon corner between barrel panels
+1 and 8 — the same direction as `litepath batch --muon-mode beam`.
+
+**Files converted before 2026-11-02** (they have a `det_rotation_deg` root
+attribute; new files have `frame` instead) used a frame turned by 45°: their
+beam runs at φ = 135° and their positions and directions are 45° off from
+LitePath runs, although the PMT indices are right. Convert them again before
+comparing them with `litepath batch` or `litepath fit` output. The event
+display centres the barrel on the beam-facing octagon corner automatically:
 
 ```bash
 python scripts/event_display.py results/benchmark/mc.h5 --charge
@@ -152,7 +149,7 @@ Two extension tables carry the information the standard schema has no place for:
 | `benchmark_truth` | Track truth/reconstruction in both frames, energy, track lengths, MRD info, hit/PE totals |
 
 Root attributes: `schema_version`, `format`, `detector_mode`
-(`benchmark-data` / `benchmark-mc`), `source_file`, `det_rotation_deg`,
+(`benchmark-data` / `benchmark-mc`), `source_file`, `frame`,
 `config`, plus the tank geometry (`tank_radius_mm`, `tank_z_min_mm`,
 `tank_z_max_mm`) so the standard event display works on these files.
 
@@ -195,8 +192,8 @@ Panels: top endcap (panel 9), unrolled barrel (panels 1–8), bottom endcap
 (panel 0). Navigate with ◀/▶ or the arrow keys.
 
 **Orientation.**  The barrel PMTs form 16 azimuthal columns and the octagon
-corners between them fall on a 22.5° grid (22.5°·k); the WAGLE beam runs at
-φ = 135°, straight into one of those corners.  By default the display now
+corners between them fall on a 45° grid (45°·k); the WAGLE beam runs at
+φ = 90°, straight into one of those corners.  By default the display now
 derives the beam bearing from the `muon_truth` table, snaps it to the nearest
 octagon corner, and centres the unrolled barrel on it — so for the WAGLE files
 the beam-facing corner lands at plot centre and the barrel shows the region
@@ -225,7 +222,7 @@ python scripts/event_display.py results/benchmark/mc.h5 --charge \
 ```
 
 The barrel is centred on the beam-facing corner automatically; add
-`--center-phi 135` only if you want to pin it explicitly.
+`--center-phi 90` only if you want to pin it explicitly.
 
 ## Verifying the conversion
 
@@ -246,7 +243,7 @@ It checks that
    places the PMT centre that much further out than the survey point);
 3. the endcaps stay on top and bottom, and the beam stays horizontal, i.e.
    the y/z swap went onto the right axis;
-4. the beam azimuth is 135° and the vertices are inside the tank.
+4. the beam azimuth is 90° and the vertices are inside the tank.
 
 The script adapts to the file kind: for the *data* file the offsets are
 expected to be small (the surveyed positions), and the track checks are
@@ -290,6 +287,12 @@ event; both share one colour scale.
 
 ### What the comparison shows
 
+> **Made in the old frame.** These numbers were measured before 2026-11-02,
+> when the converted WAGLE tracks were 45° off from the LitePath detector
+> (see "The beam is along +Y" above). With reflections on, nearly every PMT
+> is lit, so the PMT-set comparison is not sensitive to that; the hit-pattern
+> azimuths are. Redo the comparison with freshly converted files.
+
 Over 20 WAGLE MC events (same tracks, `--max-bounces 3`, 150 photons/cm):
 
 | | WAGLE MC | litepath |
@@ -302,7 +305,7 @@ Over 20 WAGLE MC events (same tracks, `--max-bounces 3`, 150 photons/cm):
 i.e. essentially every PMT the WAGLE simulation lights up is also lit in the
 raytracer (13 of the 20 events reproduce the WAGLE set exactly), and the
 azimuth of the hit pattern agrees (median 192° vs 180°, both on the far side
-of the tank from the φ = 135° beam).  The extra raytracer PMTs are the ones
+of the tank from the beam, then at φ = 135° in the old frame).  The extra raytracer PMTs are the ones
 closest to the digitisation threshold, which WCSim's stronger water
 absorption keeps empty.  This is the end-to-end confirmation that the
 ROOT → litepath transform is right.

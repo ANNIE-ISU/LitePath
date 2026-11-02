@@ -63,7 +63,7 @@ changed before starting.
   (warning), `--no-gdml/--no-pmt-holders/--no-lappd` stay as switches.
   Tagged versions are frozen: never edit one, make a new version.
   viz-server saves PMT adjustments to the draft's pmt-offsets overlay
-  (final structure frame); corrections.csv is no longer read.
+  (LitePath frame); corrections.csv is no longer read.
   PMT IDs: ToolAnalysis channel key = detector key = WCSim TubeID (332–463)
 - Track length (`sources/track.py`, `track_length_mm`) is where light is
   generated: the part of the muon line inside the tank. It is a simulation
@@ -72,6 +72,10 @@ changed before starting.
   this). `batch-lappd` (no tank, always in water) stops light once the muon is
   behind the housing's back-face plane, or at `--max-track-length` (4 m). Renaming
   the column and storing entry/exit points is planned with the step-3 schema change
+- Detector frame is fixed in `litepath/geometry/frame.py` (z up, +y beam, beam
+  at the panel 1|8 corner; checked vs ToolAnalysis, the 2019 layout slides and
+  WCSim). Inputs enter only via `table_to_frame` / `tank_to_frame` /
+  `structure_to_frame`; never add another rotation or an orientation setting
 - phi convention: truth `phi_deg` stored in `[0, 360)` to match the fit grid
   (BUG-5, #6); files written before the fix hold `[−180, 180]` and
   `load_observed_event()` wraps them on read

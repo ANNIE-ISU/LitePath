@@ -27,7 +27,6 @@ import copy
 import datetime
 import hashlib
 import json
-import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -46,8 +45,6 @@ STATUS_UNNAMED = "unnamed"
 
 # Build settings and their defaults (those of build_geometry()).
 DEFAULT_SETTINGS = {
-    "det_rotation_deg": 22.5,
-    "bottom_rotation_deg": 45.0,
     "bottom_spin_deg": 0.0,
     "z_offset_mm": 0.0,
     "lappd_model": "annie",
@@ -59,6 +56,12 @@ DEFAULT_SETTINGS = {
 }
 
 INPUT_ROLES = ("pmt_table", "structure", "manifest", "step")
+
+# Orientation settings that existed before the frame was fixed
+# (litepath.geometry.frame), with the only value they ever had in use.
+# The old flags (--det-rotation, --bottom-rot) still accept that value.
+REMOVED_SETTINGS = {"det_rotation_deg": 22.5, "bottom_rotation_deg": 45.0}
+REMOVED_FLAGS = {"det_rotation": "det_rotation_deg", "bottom_rot": "bottom_rotation_deg"}
 
 
 class GeometryError(Exception):
@@ -132,6 +135,11 @@ def load_version(name_or_path: str | Path) -> GeometryVersion:
     with open(path) as f:
         doc = yaml.safe_load(f) or {}
 
+    removed = set(doc.get("settings", {})) & set(REMOVED_SETTINGS)
+    if removed:
+        raise GeometryError(
+            f"{path}: settings {sorted(removed)} were removed: the detector orientation is "
+            "fixed (see litepath/geometry/frame.py). Delete them from the file.")
     unknown = set(doc.get("settings", {})) - set(DEFAULT_SETTINGS)
     if unknown:
         raise GeometryError(f"{path}: unknown settings {sorted(unknown)}")
@@ -159,6 +167,11 @@ def version_from_flags(values: dict) -> GeometryVersion:
     ``None`` entries take build_geometry()'s defaults.
     """
     v = {k: val for k, val in values.items() if val is not None}
+    for flag, setting in REMOVED_FLAGS.items():
+        if flag in v and float(v[flag]) != REMOVED_SETTINGS[setting]:
+            raise GeometryError(
+                f"--{flag.replace('_', '-')} {v[flag]} is not supported: the detector orientation "
+                f"is fixed (see litepath/geometry/frame.py). Drop the flag.")
     indices = v.get("lappd_indices")
     if isinstance(indices, str):
         indices = [int(x) for x in indices.split(",")]
@@ -175,8 +188,6 @@ def version_from_flags(values: dict) -> GeometryVersion:
         },
         settings={
             **DEFAULT_SETTINGS,
-            "det_rotation_deg": float(v.get("det_rotation", DEFAULT_SETTINGS["det_rotation_deg"])),
-            "bottom_rotation_deg": float(v.get("bottom_rot", DEFAULT_SETTINGS["bottom_rotation_deg"])),
             "bottom_spin_deg": float(v.get("bottom_spin", DEFAULT_SETTINGS["bottom_spin_deg"])),
             "z_offset_mm": float(v.get("z_offset", 0.0)),
             "lappd_model": v.get("lappd_model", DEFAULT_SETTINGS["lappd_model"]),
@@ -393,17 +404,9 @@ def load_build(version: GeometryVersion | str | Path, quiet: bool = False) -> Bu
         no_pmt_holders=not s["pmt_meshes"],
         z_offset=s["z_offset_mm"],
         lappd_model=s["lappd_model"],
-        bottom_rotation_deg=s["bottom_rotation_deg"],
         bottom_spin_deg=s["bottom_spin_deg"],
-        det_rotation_deg=s["det_rotation_deg"],
         n_surfboards=s["surfboards"],
         pmt_offsets=offsets,
     )
     return Build(geometry=geometry, version=version, fingerprint=fp, pmt_offsets=offsets)
 
-
-def rotate_offsets_xy(offsets: dict[int, tuple[float, float, float]], angle_deg: float
-                      ) -> dict[int, tuple[float, float, float]]:
-    """Rotate (dx, dy) of each offset by *angle_deg* about Z (dz unchanged)."""
-    c, s = math.cos(math.radians(angle_deg)), math.sin(math.radians(angle_deg))
-    return {k: (dx * c - dy * s, dx * s + dy * c, dz) for k, (dx, dy, dz) in offsets.items()}

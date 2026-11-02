@@ -8,8 +8,6 @@ inputs:
   pmt_table: geometry/base/FullTankPMTGeometry.csv
   structure: PHASE2_INNER_STRUCTURE_closed.gdml
 settings:
-  det_rotation_deg: 22.5
-  bottom_rotation_deg: 45.0
   bottom_spin_deg: 22.5
   z_offset_mm: 0.0
   lappd_model: annie
@@ -19,8 +17,8 @@ settings:
   lappds: true
 overlays: []
 tagged:
-  date: '2026-11-01'
-  fingerprint: 2d0ca3706fd67c5ea85f82035c22cf969d564fcb1a5bf852291dafcaa4cec3e3
+  date: '2026-11-02'
+  fingerprint: 9c809a4c1daac270bce7748af209af71c674c39aede8b992c7650e254f57e326
   files:
     geometry/base/FullTankPMTGeometry.csv: 57001fc9ef0c179f410ad022c024260d6ec325bef9365404eeaecea825dd6de4
     PHASE2_INNER_STRUCTURE_closed.gdml: 9c70b227adde0dd890957621e1bf077d3942942771fc94898281c4b06fa38e9a

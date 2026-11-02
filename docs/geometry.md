@@ -2,6 +2,31 @@
 
 How the inner structure mesh and PMT positions are loaded, transformed, and assembled for raytracing and visualization.
 
+## The LitePath frame
+
+Everything is built in one fixed frame, defined in `litepath/geometry/frame.py`
+(the module docstring is the reference):
+
+- `z` up along the tank axis, `z = 0` is 1980 mm below the tank centre (water from z = 19 to 3861 mm)
+- `+y` along the beam (downstream), `x = y × z`
+- octagon corners at 0°, 45°, …; faces at 22.5° + k·45°. The beam points at the 90° corner (barrel panels 1 | 8, central surfboard and LAPPD) and enters through the 270° corner (panels 4 | 5); panels run clockwise seen from above; the bottom PMT grid runs at 45° to the beam
+
+Checked against the ToolAnalysis table and the 2019 PMT layout slides (`tests/test_frame.py`).
+Inputs come in through exactly two conversions, and nothing is rotated afterwards:
+
+| Input | Conversion |
+|---|---|
+| PMT tables (ToolAnalysis CSV, scan file; cm) | `table_to_frame` |
+| WCSim ROOT output (tank-centred, mm) | `tank_to_frame`: `(x, y, z) → (−x, z, y + 1980)` |
+| GDML structure mesh, STEP manifest, scan meshes | `structure_to_frame`: 22.5° turn about z |
+
+The 22.5° follows from WCSim: it places the structure with `rotateZ(157.5°)`,
+and Geant4 turns the frame, so the volume turns by −157.5° in the tank; the
+tank → frame step adds 180°. (Before 2026-11 the code undid the placement with
+the opposite sign and made up the difference with a 45° turn of all PMTs plus a
+22.5° "detector rotation". The result was the same; the `det_rotation_deg` and
+`bottom_rotation_deg` settings and the `--det-rotation`/`--bottom-rot` flags are gone.)
+
 ---
 
 ## 1. Inner Structure (GDML Mesh)
@@ -15,7 +40,7 @@ How the inner structure mesh and PMT positions are loaded, transformed, and asse
 | 3 | Finds all `<triangular>` elements → triangle index triplets (int32 M×3) | `gdml_parser.py:48-51` |
 | 4 | Returns `(vertices, triangles)` | `gdml_parser.py:53` |
 
-The mesh is **already in structure rest frame** — no transform is applied.
+The mesh is in the GDML structure frame; `build_geometry()` turns it into the LitePath frame with `structure_to_frame`.
 
 ---
 
@@ -33,68 +58,23 @@ TubeID  panel_nr  scan_x(cm)  scan_y(cm)  scan_z(cm)  dirx  diry  dirz  pmt_type
 |---|------|-------|
 | 5 | `load_pmts()` reads the TSV with `np.loadtxt` | `pmt_loader.py:200-205` |
 
-### Stage B: Scan → WCBarrel (water tank frame)
+### Stage B: Table → LitePath frame
+
+`load_pmts()` converts every row with `frame.table_to_frame`:
+
+```
+x  =  −scan_x · 10
+y  =  (scan_z − 168.1) · 10      (beam axis, +y downstream)
+z  =  (scan_y + 14.45) · 10 + 1980
+```
+
+The constants are `TABLE_BEAM_CENTRE_CM = 168.1` and `TABLE_VERTICAL_OFFSET_CM = 14.45` in `frame.py`. Both table formats use the same coordinates.
+
+### Stage C: Z-offset (optional)
 
 | # | What | Where |
 |---|------|-------|
-| 6 | `_scan_to_tank(sx, sy, sz)` converts cm → mm and re-orders axes | `pmt_loader.py:132-138` |
-| 7 | Called per PMT | `pmt_loader.py:226` |
-
-Transform:
-
-```
-x_w  =  scan_x * 10             (horizontal)
-y_w  =  (168.1 - scan_z) * 10   (beam axis, flipped)
-z_w  =  (scan_y + 14.45) * 10   (vertical)
-```
-
-Constants at `pmt_loader.py:41-43`:
-
-- `BEAM_CENTER_Z = 168.1` cm
-- `VERTICAL_OFFSET = 14.45` cm
-
-### Stage C: WCBarrel → Structure rest frame
-
-| # | What | Where |
-|---|------|-------|
-| 8 | `_tank_to_structure(x_w, y_w, z_w)` undoes WCSim's Geant4 placement | `pmt_loader.py:141-152` |
-| 9 | Called per PMT | `pmt_loader.py:229` |
-
-WCSim placement in `WCBarrel`: `Rz(+157.5°) + (0, 0, -1980 mm)`. We undo it:
-
-```
-x_s = x_w · cos(-157.5°)  -  y_w · sin(-157.5°)
-y_s = x_w · sin(-157.5°)  +  y_w · cos(-157.5°)
-z_s = z_w + 1980
-```
-
-Precomputed rotation at `pmt_loader.py:54-58`:
-
-```python
-STRUCTURE_ROTATION_DEG = 157.5
-_rot_rad = math.radians(-STRUCTURE_ROTATION_DEG)
-_cos_r = math.cos(_rot_rad)
-_sin_r = math.sin(_rot_rad)
-```
-
-Translation: `HALF_WC_LENGTH = 1980` mm (`pmt_loader.py:52`).
-
-**After this step, PMT positions are in the same coordinate frame as the GDML mesh.**
-
-### Stage D: Bottom-PMT Z-rotation (optional)
-
-| # | What | Where |
-|---|------|-------|
-| 10 | Apply extra `Rz(θ)` only to panel-0 (LUX) PMTs | `pmt_loader.py:234-238` |
-| 11 | Angle negated: `_brot = -radians(bottom_rotation_deg)` | `pmt_loader.py:214-218` |
-
-Default is `0.0`; every shipped geometry version sets `bottom_rotation_deg: 45` for correct bottom alignment. The scan grid axes naturally sit at the octagon vertices after Stage C; a 45° bottom rotation turns them onto the face centres, aligning the grid with the structure.
-
-### Stage E: Z-offset (optional)
-
-| # | What | Where |
-|---|------|-------|
-| 12 | Add `z_offset` to Z_s | `pmt_loader.py:232` |
+| 12 | Add `z_offset` to z | `pmt_loader.py` |
 
 ---
 
@@ -110,7 +90,7 @@ Default is `0.0`; every shipped geometry version sets `bottom_rotation_deg: 45` 
 |----------|-------|-----------|-------|
 | LUX (bottom) | 0 | `(0, 0, +1)` — upward | `163-164` |
 | ETEL (top) | 9 | `(0, 0, -1)` — downward | `165-166` |
-| Hamamatsu / Watchboy / Watchman (barrel) | 1–8 | Snaps XY angle to nearest octagon face (`k × 45°`), returns `(-cos(k·45°), -sin(k·45°), 0)` — radially inward | `168-173` |
+| Hamamatsu / Watchboy / Watchman (barrel) | 1–8 | Inward normal of the nearest octagon face (faces at `22.5° + k·45°`), `frame.barrel_face_normal` | |
 
 ---
 
@@ -151,7 +131,7 @@ Forward offsets (`pmt_loader.py:123-129`):
 
 - `mesh_vertices` (float32 N×3) — GDML triangle vertex positions
 - `mesh_triangles` (int32 M×3) — triangle index list
-- `pmt_centers` (float32 P×3) — sphere centres in structure frame
+- `pmt_centers` (float32 P×3) — sphere centres in the LitePath frame
 - `pmt_radii` (float32 P) — per-PMT radius
 - `pmt_directions` (float32 P×3) — inward-pointing normals
 - `lappd_data` (float32 L×7) — LAPPD rectangle `[cx,cy,cz, nx,ny,nz, half_size]`
@@ -170,7 +150,7 @@ The interactive viewer applies `Rx(-90°)` to both mesh and PMTs when sending da
 | 24 | `_send_mesh_verts()` applies `Rx(-90°)` to each vertex | `viz_server.py:~40-50` |
 | 25 | `_send_pmts()` applies `Rx(-90°)` to centres and directions | `viz_server.py:~80-100` |
 
-**The `_tank_to_structure` function (`pmt_loader.py:141-152`) does NOT contain `Rx(-90°)`** — that rotation was removed earlier and lives only in the viz-server send methods. The raytracer kernel processes everything in the Z-up GDML frame.
+The `Rx(-90°)` lives only in the viz-server send methods. The raytracer kernel processes everything in the Z-up LitePath frame.
 
 ---
 
@@ -179,10 +159,9 @@ The interactive viewer applies `Rx(-90°)` to both mesh and PMTs when sending da
 ```
 geometry/build.py:build_geometry()
   ├── gdml_parser.py:parse_gdml()          →  (vertices, triangles)
+  ├── frame.structure_to_frame()            →  mesh in the LitePath frame
   └── pmt_loader.py:load_pmts()
-        ├── _scan_to_tank()                  →  WCBarrel frame (mm)
-        ├── _tank_to_structure()             →  structure rest frame
-        ├── bottom Z-rotation (panel 0 only)
+        ├── frame.table_to_frame()           →  LitePath frame (mm)
         ├── z_offset
         ├── _ideal_direction()               →  direction per PMT
         └── _forward_to_quat()               →  instance quaternion + position
@@ -196,7 +175,7 @@ viz_server.py:run_server()
 
 ## 7. Scan Overlay Registration
 
-The 3D scan PLY files (SuperStructure, BottomLayer, TopLayer, AllPMTs, etc.) are in inches in a free-form scan coordinate system. They are transformed to the structure rest frame (GDML frame) via a fixed sequence of scale, rotation, and translation, all implemented in `tools/register_scan.py`.
+The 3D scan PLY files (SuperStructure, BottomLayer, TopLayer, AllPMTs, etc.) are in inches in a free-form scan coordinate system. They are transformed to the GDML structure frame (turned into the LitePath frame with `structure_to_frame` when loaded) via a fixed sequence of scale, rotation, and translation, all implemented in `tools/register_scan.py`.
 
 ### Parameters
 
@@ -241,5 +220,5 @@ z += 109.2
 
 - `tools/register_scan.py` — computes parameters, transforms all PLY files, saves to `scan files by part/transformed/`.
 - `tools/preprocess_scan.py` — converts transformed PLY to `.npy` vertex/triangle arrays for the viz server.
-- `tools/find_pmt_tips.py` — finds PMT bulb tips in the AllPMTs scan mesh using CSV positions as seeds, outputs `pmt_tip_positions.npy`/`.csv`.
+- `tools/find_pmt_tips.py` — finds PMT bulb tips in the AllPMTs scan mesh using the PMT positions (in the GDML structure frame) as seeds, outputs `pmt_tip_positions.npy`/`.csv`. The shipped `pmt_tip_positions.csv` predates the fixed frame: its seeds were placed without the 45° turn, so they sit 45° from the PMTs; rerun the tool to regenerate it.
 - Viz server serves these arrays via `/api/scan_mesh/{name}/verts` and `/api/scan_mesh/{name}/tris`.

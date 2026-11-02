@@ -7,7 +7,6 @@ Usage:
 
 from __future__ import annotations
 
-import argparse
 import csv
 import json
 import math
@@ -16,12 +15,11 @@ from pathlib import Path
 
 import numpy as np
 
-# ---- CLI ----
-_cli = argparse.ArgumentParser()
-_cli.add_argument("--det-rotation", type=float, default=22.5,
-                  help="Global Z-rotation (deg) so +Y aligns with octagon corner (default: 22.5)")
-_cli_args, _ = _cli.parse_known_args()
-DET_ROTATION = _cli_args.det_rotation
+from litepath.geometry.frame import STRUCTURE_TO_FRAME_DEG
+
+# The scan meshes and tip positions are in the GDML structure frame; this
+# turn brings them into the LitePath frame (litepath/geometry/frame.py).
+DET_ROTATION = STRUCTURE_TO_FRAME_DEG
 
 
 def rotate_z(points: np.ndarray, angle_deg: float) -> None:
