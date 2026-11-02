@@ -685,8 +685,8 @@ HTML_PAGE = r"""<!DOCTYPE html>
       Z: <input type="number" id="mz" value="2000" step="50">
     </div>
   </label>
-  <label>θ (polar) <input type="range" id="theta" min="0" max="3.1416" step="0.01" value="3.1416"></label>
-  <label>φ (azimuth) <input type="range" id="phi" min="0" max="6.2832" step="0.01" value="0"></label>
+  <label>θ (polar) <input type="range" id="theta" min="0" max="3.1416" step="any" value="1.5708"></label>
+  <label>φ (azimuth) <input type="range" id="phi" min="0" max="6.2832" step="any" value="1.5708"></label>
   <hr style="margin:8px 0;border:none;border-top:1px solid rgba(0,0,0,0.1);">
   <label>Ambient <span id="ambientVal">0.50</span>
     <input type="range" id="ambient" min="0" max="2.0" step="0.01" value="0.50"></label>
@@ -754,10 +754,10 @@ HTML_PAGE = r"""<!DOCTYPE html>
   <div id="traceResult" style="margin-top:6px;font-size:12px;line-height:1.5;"></div>
   <hr style="margin:8px 0;border:none;border-top:1px solid rgba(0,0,0,0.15);">
   <h3 style="margin-top:6px;">View</h3>
-  <label>Azimuth <span id="viewAzVal">36</span>
-    <input type="range" id="viewAz" min="0" max="360" step="1" value="36"></label>
-  <label>Polar <span id="viewElVal">77</span>
-    <input type="range" id="viewEl" min="0" max="180" step="1" value="77"></label>
+  <label>Azimuth <span id="viewAzVal">270</span>
+    <input type="range" id="viewAz" min="0" max="360" step="1" value="270"></label>
+  <label>Polar <span id="viewElVal">90</span>
+    <input type="range" id="viewEl" min="0" max="180" step="1" value="90"></label>
   <label>Distance <span id="viewDistVal">4416</span>
     <input type="range" id="viewDist" min="100" max="10000" step="50" value="4416"></label>
   <div style="margin-top:4px;font-size:11px;color:#666;">Real-time shadows · No server calls</div>
@@ -836,7 +836,8 @@ scene.background = new THREE.Color(0x7088a0);
 
 const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 1, 20000);
 camera.up.set(0, 0, 1);
-camera.position.set(3500, 2500, 3000);
+// Start upstream, looking downstream along the beam (+y)
+camera.position.set(0, -4416, 2000);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
