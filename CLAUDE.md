@@ -48,6 +48,13 @@ changed before starting.
 5. **Restore Metal GPU backend** — issue #12 (opened 2026-10-27). All
    `ti.init` calls are hard-coded to `ti.cpu` because `trace_kernel` takes 34
    ndarray args (> Metal's 31-buffer limit; 32 before the PMT-mesh BVH). Soon a priority; not started.
+6. **Phase 0 migration** (design doc "LitePath Architecture & Geometry Design
+   (Phase 0)", claude.ai) — steps 1–3 DONE (step 3 merged 2026-11-02 at
+   cef8087: geometry versions, fixed frame, output v2, default
+   `annie-2026-data`). Next: the geometry workbench (split viz server).
+   Leftovers: regenerate `pmt_tip_positions.csv` (45° off, needs the AllPMTs
+   scan mesh); viz trace reports generated photons as ppc × 401 cm.
+   WCSim/data benchmarking had not converged; redo it before relying on it
 
 ## Key Facts for Code Changes
 
@@ -57,7 +64,8 @@ changed before starting.
   `sources/` and `simulate.py` (see `docs/README.md` code map)
 - HDF5 schema version is `SCHEMA_VERSION = 2` in `io_h5.py` (v1 files still read;
   see "Changes in v2" in `docs/BATCH_OUTPUT.md`)
-- Geometry versions (step 3, in progress): YAML in `geometry/versions/`,
+- Geometry versions: YAML in `geometry/versions/` (default `annie-2026-data`;
+  `annie-2022-scan` for older runs and the WCSim samples in `benchmarking_data/`),
   overlays in `geometry/overlays/`, upstream tables in `geometry/base/`;
   `litepath/geometry/versions.py` (`load_build()`, fingerprint, tagging).
   Commands take `--geometry NAME`; the older geometry flags are deprecated
