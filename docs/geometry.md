@@ -88,7 +88,7 @@ Translation: `HALF_WC_LENGTH = 1980` mm (`pmt_loader.py:52`).
 | 10 | Apply extra `Rz(θ)` only to panel-0 (LUX) PMTs | `pmt_loader.py:234-238` |
 | 11 | Angle negated: `_brot = -radians(bottom_rotation_deg)` | `pmt_loader.py:214-218` |
 
-Default is `0.0`; pass `--bottom-rot 45` for correct bottom alignment. The scan grid axes naturally sit at the octagon vertices after Stage C; `--bottom-rot 45` rotates them onto the face centres, aligning the grid with the structure.
+Default is `0.0`; every shipped geometry version sets `bottom_rotation_deg: 45` for correct bottom alignment. The scan grid axes naturally sit at the octagon vertices after Stage C; a 45° bottom rotation turns them onto the face centres, aligning the grid with the structure.
 
 ### Stage E: Z-offset (optional)
 

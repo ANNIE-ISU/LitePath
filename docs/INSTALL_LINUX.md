@@ -172,7 +172,7 @@ needed for the viewer.
 
 ```bash
 python -m litepath viz-server \
-    --pmt-csv PMTPositions_Scan.txt \
+    --geometry annie-2022-scan \
     --port 8080
 ```
 

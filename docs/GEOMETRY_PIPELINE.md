@@ -130,9 +130,15 @@ Geometry
 └── tank_z_max:      float           — cylinder top Z
 ```
 
+The inputs and settings come from a **geometry version**
+(`geometry/versions/*.yaml`, selected with `--geometry`; see
+`litepath/geometry/versions.py` and the "Geometry versions" section of
+`docs/README.md`). `load_build()` passes them to `build_geometry()` and
+applies the version's `pmt-offsets` overlays to the PMT positions.
+
 PMT data is loaded from the **first available** source:
 
-1. **`--pmt-csv`** (preferred) — `pmt_loader.load_pmts()` applies the full scan→tank→structure transform.
+1. **PMT table** (the version's `pmt_table`: the WCSim scan file or the ToolAnalysis `FullTankPMTGeometry.csv`, read by `geometry/elements.py`) — `pmt_loader.load_pmts()` applies the full scan→tank→structure transform.
 2. **`--manifest`** (cached JSON) — uses PMT centres directly from the manifest (already in structure frame).
 3. **`--step`** (raw STEP file) — parses the CAD fresh, extracts PMT housing centres.
 

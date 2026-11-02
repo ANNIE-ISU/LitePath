@@ -54,9 +54,17 @@ python -m litepath fit results/output.h5 --event 0 \
     --theta-window 10 --grid-steps 21 --show
 
 # Interactive 3D viewer (scintillation toggle + parameters in Trace panel)
-python -m litepath viz-server \
-    --pmt-csv PMTPositions_Scan.txt --port 8080
+python -m litepath viz-server --geometry annie-2022-scan --port 8080
+
+# Tune PMT positions against the scan overlay (saves to the draft version)
+python -m litepath viz-server --geometry annie-2026-data-tuning --port 8080
+
+# See which geometry versions exist
+python -m litepath geometry list
 ```
+
+Use the same `--geometry` for `fit` as for the `batch` run that made the
+events.
 
 ## CLI Commands
 
@@ -531,11 +539,13 @@ Each GPU thread processes one photon:
 ## Surfboard Obscurant Panels
 
 PVC panels (2450 x 280 x 10 mm) mounted vertically at the forward
-octagon vertices (45°, 90°, 135°). Configurable via `--surfboard {0,1,3}`.
+octagon vertices (45°, 90°, 135°). Set by the geometry version's
+`surfboards` setting (0, 1 or 3; all shipped versions use 3).
 
 ## LAPPD Housing Model
 
-The `--lappd-model annie` flag replaces the default bare photocathode
+The `annie` LAPPD model (the geometry version's `lappd_model` setting,
+used by all shipped versions) replaces the default bare photocathode
 rectangle with the full Kandemir waterproof housing: a 5-sided acrylic
 box (330 x 430 x 60 mm) with an off-centre photocathode (191.5 x 191.5 mm).
 

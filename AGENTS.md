@@ -106,7 +106,7 @@ python -m litepath batch-lappd \
 python -m litepath fit output.h5 --event 0 --show
 
 # 3D viewer (scintillation toggle + parameters in the Trace panel)
-python -m litepath viz-server --pmt-csv PMTPositions_Scan.txt --surfboard 3 --port 8080
+python -m litepath viz-server --geometry annie-2022-scan --port 8080
 
 # Convert WAGLE ROOT (ANNIE data / MC) into the litepath HDF5 schema
 python -m litepath benchmark \
