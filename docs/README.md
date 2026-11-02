@@ -21,18 +21,18 @@ with on-the-fly raytracing per hypothesis.
 ```bash
 # Batch-mode simulation (Cherenkov)
 python -m litepath batch \
-    --geometry annie-2022-scan \
+    --geometry annie-2026-data \
     --events 100 --photons-per-cm 150
 
 # Batch-mode simulation with wbLS scintillation (adds to Cherenkov)
 python -m litepath batch \
-    --geometry annie-2022-scan \
+    --geometry annie-2026-data \
     --events 100 --photons-per-cm 150 \
     --scintillation --photons-per-cm-scint 100
 
 # Scintillation-only batch (Cherenkov off)
 python -m litepath batch \
-    --geometry annie-2022-scan \
+    --geometry annie-2026-data \
     --events 100 --photons-per-cm 0 \
     --scintillation --photons-per-cm-scint 100
 
@@ -54,7 +54,7 @@ python -m litepath fit results/output.h5 --event 0 \
     --theta-window 10 --grid-steps 21 --show
 
 # Interactive 3D viewer (scintillation toggle + parameters in Trace panel)
-python -m litepath viz-server --geometry annie-2022-scan --port 8080
+python -m litepath viz-server --geometry annie-2026-data --port 8080
 
 # Tune PMT positions against the scan overlay (saves to the draft version)
 python -m litepath viz-server --geometry annie-2026-data-tuning --port 8080
@@ -72,16 +72,16 @@ events.
 
 Every full-detector command (`batch`, `fit`, `benchmark`,
 `build-detector-config`, `viz-server`) builds its detector from a named **geometry
-version** chosen with `--geometry NAME` (default `annie-2022-scan`). A
+version** chosen with `--geometry NAME` (default `annie-2026-data`). A
 version is a YAML file in `geometry/versions/` naming the input files
-(PMT table, structure GDML), the build settings (rotations, LAPPD model,
+(PMT table, structure GDML), the build settings (bottom-PMT spin, LAPPD model,
 surfboards, …) and any overlays, such as per-PMT position offsets in
 `geometry/overlays/`. `--geometry` also takes a path to a version file.
 
 | Version | Status | What it is |
 |---------|--------|------------|
-| `annie-2022-scan` | tagged | The detector LitePath simulated up to 2026-11: 2022 scan positions (PMTs 453/455 swapped), bottom-PMT spin 0°, 3 surfboards |
-| `annie-2026-data` | tagged | For comparison with data: ToolAnalysis PMT table (453/455 corrected), bottom-PMT spin 22.5°, 3 surfboards |
+| `annie-2022-scan` | tagged | The detector LitePath simulated up to 2026-11: 2022 scan positions (PMTs 453/455 swapped), bottom-PMT spin 0°, 3 surfboards. Use it to reproduce older runs and for the WCSim samples in `benchmarking_data/`, which have 453/455 swapped too |
+| `annie-2026-data` | tagged | **Default** (since 2026-11). For comparison with data: ToolAnalysis PMT table (453/455 corrected, 15 PMTs marked OFF), bottom-PMT spin 22.5°, 3 surfboards |
 | `annie-2026-data-tuning` | draft | `annie-2026-data` plus the unfinished `corrections.csv` offsets |
 
 A **tagged** version is frozen: tagging records the hashes of all its input
@@ -126,7 +126,7 @@ python -m litepath batch [flags]
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--geometry` | `annie-2022-scan` | Geometry version name or file (see above); the older geometry flags are deprecated |
+| `--geometry` | `annie-2026-data` | Geometry version name or file (see above); the older geometry flags are deprecated |
 | `--events` | 100 | Number of events to generate (default: line count of `--muon-file` if given, else 100) |
 | `--photons-per-cm` | 150 | Photons per cm along the muon track |
 | `--batch-size` | 50 | Events per GPU launch (higher = faster) |
@@ -235,7 +235,7 @@ python -m litepath fit output.h5 [--event 0] [flags]
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--geometry` | `annie-2022-scan` | Geometry version; use the one the events were simulated with |
+| `--geometry` | `annie-2026-data` | Geometry version; use the one the events were simulated with |
 | `--event` | 0 | Event ID to fit |
 | `--grid-theta` | `"0 180 19"` | θ grid: `"start stop steps"` (deg) |
 | `--grid-phi` | `"0 360 37"` | φ grid: `"start stop steps"` (deg) |
@@ -300,7 +300,7 @@ Typical end-to-end workflow:
 
 ```bash
 # 1. Simulate events
-python -m litepath batch --geometry annie-2022-scan \
+python -m litepath batch --geometry annie-2026-data \
     --events 100 --photons-per-cm 150 --pmt-response
 
 # 2. Coarse full-sky direction fit for one event

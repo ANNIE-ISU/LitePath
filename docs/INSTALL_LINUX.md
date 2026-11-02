@@ -127,7 +127,7 @@ the package will still import — cadquery is only used when `--step` or
 On CPU (any machine):
 
 ```bash
-python -m litepath batch --geometry annie-2022-scan --events 10 --photons-per-cm 50
+python -m litepath batch --geometry annie-2026-data --events 10 --photons-per-cm 50
 ```
 
 Expected output:
@@ -159,7 +159,7 @@ edit the `ti.init(arch=ti.cpu)` calls in `litepath/cli.py` and
 # Get the PMT positions file (ask the collaboration)
 # Then:
 python -m litepath batch \
-    --geometry annie-2022-scan \
+    --geometry annie-2026-data \
     --events 100 --photons-per-cm 150
 ```
 
@@ -172,7 +172,7 @@ needed for the viewer.
 
 ```bash
 python -m litepath viz-server \
-    --geometry annie-2022-scan \
+    --geometry annie-2026-data \
     --port 8080
 ```
 

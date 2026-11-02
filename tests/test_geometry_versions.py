@@ -114,7 +114,7 @@ def test_cli_old_flags_warn(capsys):
 
 def test_cli_default_geometry():
     from litepath.cli import build_parser, resolve_geometry
-    assert resolve_geometry(build_parser().parse_args(["batch"])).name == "annie-2022-scan"
+    assert resolve_geometry(build_parser().parse_args(["batch"])).name == "annie-2026-data"
 
 
 def test_cli_switches_derive_from_a_version():

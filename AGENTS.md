@@ -67,28 +67,28 @@ pytest
 
 # Batch simulation
 python -m litepath batch \
-    --geometry annie-2022-scan \
+    --geometry annie-2026-data \
     --events 100 --photons-per-cm 150
 
 # Batch simulation without inner structure (PMTs + LAPPDs only)
 python -m litepath batch --no-gdml \
-    --geometry annie-2022-scan \
+    --geometry annie-2026-data \
     --events 100
 
 # Batch simulation without PMT holder meshes (faster, PMT positions still loaded)
 python -m litepath batch --no-pmt-holders \
-    --geometry annie-2022-scan \
+    --geometry annie-2026-data \
     --events 100
 
 # Batch simulation with Cherenkov + wbLS scintillation
 python -m litepath batch \
-    --geometry annie-2022-scan \
+    --geometry annie-2026-data \
     --events 100 --photons-per-cm 150 \
     --scintillation --photons-per-cm-scint 100
 
 # Scintillation-only batch (Cherenkov off)
 python -m litepath batch \
-    --geometry annie-2022-scan \
+    --geometry annie-2026-data \
     --events 100 --photons-per-cm 0 \
     --scintillation --photons-per-cm-scint 100
 
@@ -106,7 +106,7 @@ python -m litepath batch-lappd \
 python -m litepath fit output.h5 --event 0 --show
 
 # 3D viewer (scintillation toggle + parameters in the Trace panel)
-python -m litepath viz-server --geometry annie-2022-scan --port 8080
+python -m litepath viz-server --geometry annie-2026-data --port 8080
 
 # Convert WAGLE ROOT (ANNIE data / MC) into the litepath HDF5 schema
 python -m litepath benchmark \
@@ -128,7 +128,7 @@ python scripts/event_display.py results/benchmark/mc.h5 --charge --center-phi 13
 | `--no-gdml` | false | Skip inner structure GDML mesh (tank + PMTs only) |
 | `--no-pmt-holders` | false | Skip PMT body and hardware holder meshes (PMT positions still loaded) |
 | `--no-lappd` | false | Skip LAPPD rectangles |
-| `--geometry` | `annie-2022-scan` | Geometry version (see `docs/README.md`); replaces the deprecated `--pmt-csv`, `--surfboard`, `--det-rotation`, … flags |
+| `--geometry` | `annie-2026-data` | Geometry version (see `docs/README.md`); replaces the deprecated `--pmt-csv`, `--surfboard`, `--det-rotation`, … flags |
 | `--scintillation` | false | Enable wbLS scintillation photon generation (adds to Cherenkov) |
 | `--photons-per-cm-scint` | 100 | Scintillation photons per cm of track |
 | `--tau-fast` | 2.0 | Fast scintillation decay time (ns) |

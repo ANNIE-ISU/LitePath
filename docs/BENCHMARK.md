@@ -13,13 +13,14 @@ output can be analysed with the same tools.
 
 ```bash
 # Convert both files (≈20 s total)
-python -m litepath benchmark \
+python -m litepath benchmark --geometry annie-2022-scan \
     --data benchmarking_data/ANNIETree_ThroughgoingMuons.root \
     --mc   benchmarking_data/MCTree_ThroughgoingMuons.root \
     --output-dir results/benchmark
 
 # One file, first 100 events only
-python -m litepath benchmark --mc benchmarking_data/MCTree_ThroughgoingMuons.root \
+python -m litepath benchmark --geometry annie-2022-scan \
+    --mc benchmarking_data/MCTree_ThroughgoingMuons.root \
     --output-dir results/benchmark --max-events 100
 ```
 
@@ -29,7 +30,7 @@ Outputs `results/benchmark/data.h5` and `results/benchmark/mc.h5`.
 |------|---------|-------------|
 | `--data` / `--mc` | — | ROOT files to convert (at least one required) |
 | `--tree` | `Event` | TTree name inside the ROOT files |
-| `--geometry` | `annie-2022-scan` | Geometry version whose PMT table builds the registry; use the version of the LitePath runs you compare with (`--pmt-csv` is deprecated) |
+| `--geometry` | `annie-2026-data` | Geometry version whose PMT table builds the registry; use the version of the LitePath runs you compare with (`--pmt-csv` is deprecated). The WAGLE files in `benchmarking_data/` (MC and data) have PMTs 453/455 at the old scan-file positions, so pass `--geometry annie-2022-scan` for them |
 | `--output-dir` / `-o` | `results/benchmark` | Output directory |
 | `--max-events` | `0` (all) | Convert at most N events per file |
 | `--no-raw-hits` | false | Skip the per-hit `pmt_hits` table |

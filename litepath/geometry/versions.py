@@ -37,7 +37,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 GEOMETRY_DIR = REPO_ROOT / "geometry"
 VERSIONS_DIR = GEOMETRY_DIR / "versions"
 
-DEFAULT_GEOMETRY = "annie-2022-scan"
+DEFAULT_GEOMETRY = "annie-2026-data"
 
 STATUS_TAGGED = "tagged"
 STATUS_DRAFT = "draft"
