@@ -124,8 +124,9 @@ Geometry
 The inputs and settings come from a **geometry version**
 (`geometry/versions/*.yaml`, selected with `--geometry`; see
 `litepath/geometry/versions.py` and the "Geometry versions" section of
-`docs/README.md`). `load_build()` passes them to `build_geometry()` and
-applies the version's `pmt-offsets` overlays to the PMT positions.
+`docs/README.md`). `load_build()` passes them to `build_geometry()`, which
+applies the version's offset overlays to the PMT, LAPPD and surfboard
+positions (see `docs/GEOMETRY_TUNING.md`).
 
 PMT data is loaded from the **first available** source:
 

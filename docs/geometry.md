@@ -219,6 +219,8 @@ z += 109.2
 ### Implementation
 
 - `tools/register_scan.py` — computes parameters, transforms all PLY files, saves to `scan files by part/transformed/`.
-- `tools/preprocess_scan.py` — converts transformed PLY to `.npy` vertex/triangle arrays for the viz server.
-- `tools/find_pmt_tips.py` — finds PMT bulb tips in the AllPMTs scan mesh using the PMT positions (in the GDML structure frame) as seeds, outputs `pmt_tip_positions.npy`/`.csv`. The shipped `pmt_tip_positions.csv` predates the fixed frame: its seeds were placed without the 45° turn, so they sit 45° from the PMTs; rerun the tool to regenerate it.
-- Viz server serves these arrays via `/api/scan_mesh/{name}/verts` and `/api/scan_mesh/{name}/tris`.
+- `tools/preprocess_scan.py` — converts transformed PLY to `.npy` vertex/triangle arrays for the geometry workbench. The `.npy` files (69 MB) are gitignored; copy them into `scan files by part/transformed/` on machines that lack them.
+- `tools/find_pmt_tips.py` — finds PMT bulb tips in the AllPMTs scan mesh (the PLY, or `AllPMTs_verts.npy`), seeded with the ToolAnalysis PMT positions taken back into the GDML structure frame; outputs `pmt_tip_positions.npy`/`.csv`. Regenerated 2026-11-03 in the fixed frame (the earlier file's seeds were 45° off).
+- The geometry workbench (`litepath geometry-viz`) serves these arrays via `/api/scan_mesh/{name}/verts` and `/api/scan_mesh/{name}/tris`, and the tips via `/api/pmt_tips`.
+
+**Check (2026-11-03):** with the viewer's 22.5° turn, LitePath's PMT bulb tips are a median 20 mm (barrel) from the AllPMTs scan surface; any other multiple of 45° fits worse. The scan files number the barrel panels differently from ToolAnalysis: scan panels 1–8 are ToolAnalysis panels 7, 8, 1, 2, 3, 6, 4, 5.

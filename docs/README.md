@@ -56,8 +56,8 @@ python -m litepath fit results/output.h5 --event 0 \
 # Interactive 3D viewer (scintillation toggle + parameters in Trace panel)
 python -m litepath viz-server --geometry annie-2026-data --port 8080
 
-# Tune PMT positions against the scan overlay (saves to the draft version)
-python -m litepath viz-server --geometry annie-2026-data-tuning --port 8080
+# Tune PMT, LAPPD and surfboard positions (geometry workbench, saves to the draft)
+python -m litepath geometry-viz --geometry annie-2026-data-tuning    # http://localhost:8082
 
 # See which geometry versions exist
 python -m litepath geometry list
@@ -71,30 +71,35 @@ events.
 ### Geometry versions and `geometry`
 
 Every full-detector command (`batch`, `fit`, `benchmark`,
-`build-detector-config`, `viz-server`) builds its detector from a named **geometry
+`build-detector-config`, `viz-server`, `geometry-viz`) builds its detector from a named **geometry
 version** chosen with `--geometry NAME` (default `annie-2026-data`). A
 version is a YAML file in `geometry/versions/` naming the input files
 (PMT table, structure GDML), the build settings (bottom-PMT spin, LAPPD model,
-surfboards, …) and any overlays, such as per-PMT position offsets in
+surfboards, …) and any overlays: PMT, LAPPD and surfboard position offsets in
 `geometry/overlays/`. `--geometry` also takes a path to a version file.
+Tuning positions, snapshots and tagging are explained step by step in
+[`GEOMETRY_TUNING.md`](GEOMETRY_TUNING.md).
 
 | Version | Status | What it is |
 |---------|--------|------------|
 | `annie-2022-scan` | tagged | The detector LitePath simulated up to 2026-11: 2022 scan positions (PMTs 453/455 swapped), bottom-PMT spin 0°, 3 surfboards. Use it to reproduce older runs and for the WCSim samples in `benchmarking_data/`, which have 453/455 swapped too |
 | `annie-2026-data` | tagged | **Default** (since 2026-11). For comparison with data: ToolAnalysis PMT table (453/455 corrected, 15 PMTs marked OFF), bottom-PMT spin 22.5°, 3 surfboards |
-| `annie-2026-data-tuning` | draft | `annie-2026-data` plus the unfinished `corrections.csv` offsets |
+| `annie-2026-data-tuning` | draft | The working draft for tuning in `geometry-viz`: `annie-2026-data` plus the offsets in `geometry/overlays/metrology-draft.yaml` |
+| `annie-2026-data-v0.1` | tagged | Snapshot archiving the corrections made before 2026-11: `annie-2026-data` plus the 62 PMT offsets of `corrections.csv` |
 
 A **tagged** version is frozen: tagging records the hashes of all its input
 files and its fingerprint, and a build refuses to run if anything changed.
 To change a tagged geometry, make a new version. A **draft** can change;
 runs on it print a warning. The **fingerprint** is a SHA-256 over the
-settings, the PMT offsets and the contents of every input file (including
-the PMT meshes), so equal fingerprints mean the same detector.
+settings, the offsets and the contents of every input file (including
+the PMT meshes and overlays): two runs with the same fingerprint used the
+same detector.
 
 ```
 python -m litepath geometry list          # name, status, fingerprint, description
 python -m litepath geometry show NAME     # inputs, settings, file hashes
-python -m litepath geometry tag NAME      # freeze a draft
+python -m litepath geometry snapshot DRAFT --as NAME   # freeze a draft's state as a new tagged version
+python -m litepath geometry tag NAME      # tag a finished recipe in place
 ```
 
 `--no-gdml`, `--no-pmt-holders` and `--no-lappd` drop the structure mesh,
@@ -332,30 +337,24 @@ that fit residuals can be computed for validation.
   and `--port` (default 8080).  The older `--bottom-spin` flag is
   deprecated with the other geometry flags.
 
-  PMT position adjustments are saved to the geometry version's
-  `pmt-offsets` overlay, and only for a **draft** version: run
-  `viz-server --geometry annie-2026-data-tuning` to tune (adjustments go to
-  `geometry/overlays/metrology-draft.yaml`). For a tagged version the
-  adjust panel reports that the version is not editable. When tuning is
-  done, copy the draft to a new version file and tag it. `corrections.csv`
-  is no longer read; its contents became `metrology-draft.yaml`. LAPPD
-  position adjustments still use `litepath/lappd_corrections.csv`.
+  It is the event viewer: muons, photon tracing and the LAPPD readout.
+  Moving and saving geometry is done in `geometry-viz`.
 
 - **`geometry-viz`** — Geometry workbench, served at `http://localhost:8082`
-  (`--geometry`, the `--no-*` switches, `--host`, `--port`). The viz
-  server's geometry tools (scan overlays and tip markers, PMT position
-  adjustment, LAPPD and surfboard positions) without the muon and
-  photon-trace parts; the light-source controls only place the scene's
-  light. It saves PMT adjustments the same way (draft versions only):
-  `geometry-viz --geometry annie-2026-data-tuning`. For now the same tools
-  are still in `viz-server`; they will be removed there once the workbench
-  is approved.
+  (`--geometry`, the `--no-*` switches, `--host`, `--port`): view and adjust
+  PMT, LAPPD and surfboard positions against the 3D scan overlay and the PMT
+  tip markers, without the muon and photon-trace parts (the light-source
+  controls only place the scene's light). Slider moves are previews; Keep,
+  then Save to draft, writes the totals to the draft's working file, and the
+  Snapshot panel freezes a good state as a tagged version. Saving needs a
+  draft: `geometry-viz --geometry annie-2026-data-tuning`. See
+  [`GEOMETRY_TUNING.md`](GEOMETRY_TUNING.md).
 
 - **`viz-lappd`** — Standalone LAPPD module viewer, served at
   `http://localhost:8081` (`--host`, `--port` as above).
 - **`benchmark`** — Converts WAGLE ROOT trees (ANNIE data and MC) into the
   batch HDF5 schema for comparison with LitePath output.  Takes
-  `--geometry` for the PMT table and detector rotation.  See
+  `--geometry` for the PMT table.  See
   [`BENCHMARK.md`](BENCHMARK.md).
 - **`build-detector-config`** — Writes the detector registry YAML
   (`-o`, default `detectors.yaml`) for a `--geometry` version.
@@ -365,7 +364,8 @@ that fit residuals can be computed for validation.
 Further documentation: [`BATCH_OUTPUT.md`](BATCH_OUTPUT.md) (HDF5 schema),
 [`BENCHMARK.md`](BENCHMARK.md) (WAGLE benchmarking),
 [`geometry.md`](geometry.md) and [`GEOMETRY_PIPELINE.md`](GEOMETRY_PIPELINE.md)
-(detector geometry), [`INSTALL_LINUX.md`](INSTALL_LINUX.md) (Linux setup).
+(detector geometry), [`GEOMETRY_TUNING.md`](GEOMETRY_TUNING.md) (tuning
+positions, snapshots, tagging), [`INSTALL_LINUX.md`](INSTALL_LINUX.md) (Linux setup).
 
 ## Analysis scripts
 
@@ -558,7 +558,9 @@ Each GPU thread processes one photon:
 
 PVC panels (2450 x 280 x 10 mm) mounted vertically at the forward
 octagon vertices (45°, 90°, 135°). Set by the geometry version's
-`surfboards` setting (0, 1 or 3; all shipped versions use 3).
+`surfboards` setting (0, 1 or 3; all shipped versions use 3). Their base
+positions are set in `build_surfboards`; per-surfboard offsets come from the
+version's overlay (see [`GEOMETRY_TUNING.md`](GEOMETRY_TUNING.md)).
 
 ## LAPPD Housing Model
 
@@ -566,6 +568,9 @@ The `annie` LAPPD model (the geometry version's `lappd_model` setting,
 used by all shipped versions) replaces the default bare photocathode
 rectangle with the full Kandemir waterproof housing: a 5-sided acrylic
 box (330 x 430 x 60 mm) with an off-centre photocathode (191.5 x 191.5 mm).
+With 3 surfboards there is one housed LAPPD in front of each (detector keys
+2000, 2001, 2002 at 45°, 90°, 135°); per-LAPPD offsets come from the
+version's overlay.
 
 ## Scintillation (wbLS)
 

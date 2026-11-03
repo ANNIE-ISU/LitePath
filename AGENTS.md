@@ -42,7 +42,8 @@ litepath/
 │   ├── lappd_response.py # LAPPD digitization (Taichi-accelerated)
 │   ├── lappd_model.py  # LAPPD housing geometry builder
 │   ├── benchmark.py    # WAGLE ROOT (data/MC) → litepath HDF5 conversion
-│   ├── viz_server.py  # Interactive Three.js 3D viewer
+│   ├── viz_server.py  # Interactive Three.js 3D event viewer (muons, tracing)
+│   ├── geometry_viz.py # Geometry workbench: adjust/save offsets, snapshots
 │   └── io_h5.py       # HDF5 table I/O
 ├── scripts/           # Analysis/plotting utilities (13 files)
 │   ├── event_display.py  # Event display (batch + WAGLE benchmark files)
@@ -107,6 +108,10 @@ python -m litepath fit output.h5 --event 0 --show
 
 # 3D viewer (scintillation toggle + parameters in the Trace panel)
 python -m litepath viz-server --geometry annie-2026-data --port 8080
+
+# Geometry workbench: tune PMT/LAPPD/surfboard positions, snapshot (docs/GEOMETRY_TUNING.md)
+python -m litepath geometry-viz --geometry annie-2026-data-tuning
+python -m litepath geometry snapshot annie-2026-data-tuning --as annie-2026-data-v1.0
 
 # Convert WAGLE ROOT (ANNIE data / MC) into the litepath HDF5 schema
 python -m litepath benchmark \
@@ -173,8 +178,9 @@ Both `batch` and `batch-lappd` write the same HDF5 schema (v2):
 | `PHASE2_INNER_STRUCTURE_closed.gdml` | Primary GDML detector geometry mesh |
 | `PMTPositions_Scan.txt` | 132 PMT positions (TSV, 9 columns) |
 | `component_manifest.json` | Cached STEP parser output (PMT/LAPPD positions) |
-| `corrections.csv` | Old viz-server PMT offsets; no longer read (now `geometry/overlays/metrology-draft.yaml`) |
-| `geometry/versions/*.yaml` | Named geometry versions (`--geometry NAME`) |
+| `corrections.csv` | Old viz-server PMT offsets; no longer read (archived as version `annie-2026-data-v0.1`) |
+| `geometry/versions/*.yaml` | Named geometry versions (`--geometry NAME`); tagged ones are frozen |
+| `geometry/overlays/*.yaml` | Position offsets (`element-offsets`): `metrology-draft.yaml` is the working file, others are frozen snapshot copies |
 | `geometry/base/FullTankPMTGeometry.csv` | ToolAnalysis PMT table (source in `geometry/base/SOURCES.md`) |
 | `MuonStartsAndDirecs.txt` | Muon start positions/directions |
 | `benchmarking_data/ANNIETree_ThroughgoingMuons.root` | WAGLE ANNIE data (10112 events, MRD reconstruction only) |

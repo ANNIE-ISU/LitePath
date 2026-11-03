@@ -52,8 +52,10 @@ changed before starting.
    (Phase 0)", claude.ai) — steps 1–3 DONE (step 3 merged 2026-11-02 at
    cef8087: geometry versions, fixed frame, output v2, default
    `annie-2026-data`). Next: the geometry workbench (split viz server).
-   Leftovers: regenerate `pmt_tip_positions.csv` (45° off, needs the AllPMTs
-   scan mesh); viz trace reports generated photons as ppc × 401 cm.
+   The workbench (`litepath geometry-viz`, `litepath/geometry_viz.py`) is
+   split from viz-server (2026-11-03): previews, Keep/Save to the draft's
+   working overlay, snapshots. Leftover: viz trace reports generated photons
+   as ppc × 401 cm.
    WCSim/data benchmarking had not converged; redo it before relying on it
 
 ## Key Facts for Code Changes
@@ -71,8 +73,11 @@ changed before starting.
   Commands take `--geometry NAME`; the older geometry flags are deprecated
   (warning), `--no-gdml/--no-pmt-holders/--no-lappd` stay as switches.
   Tagged versions are frozen: never edit one, make a new version.
-  viz-server saves PMT adjustments to the draft's pmt-offsets overlay
-  (LitePath frame); corrections.csv is no longer read.
+  Adjustments: only `geometry-viz` writes them, to the draft's
+  `element-offsets` overlay (pmts / lappds 2000+ / surfboards; totals from
+  base, LitePath frame). Freeze with `litepath geometry snapshot DRAFT --as
+  NAME` (copies the overlay, tags a new recipe); see docs/GEOMETRY_TUNING.md.
+  Naming: `annie-2026-data-vX.Y`. corrections.csv is archived as v0.1.
   PMT IDs: ToolAnalysis channel key = detector key = WCSim TubeID (332–463)
 - Track length (`sources/track.py`, `track_length_mm`) is where light is
   generated: the part of the muon line inside the tank. It is a simulation
