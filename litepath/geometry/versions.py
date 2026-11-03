@@ -90,6 +90,8 @@ class Build:
     version: GeometryVersion
     fingerprint: str
     pmt_offsets: dict[int, tuple[float, float, float]]
+    lappd_offsets: dict[int, tuple[float, float, float]] = field(default_factory=dict)
+    surfboard_offsets: dict[int, tuple[float, float, float]] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -208,64 +210,131 @@ def _format_offset(value: float) -> str:
     return "0" if abs(value) < 5e-7 else f"{value:.6f}".rstrip("0").rstrip(".")
 
 
-def write_pmt_offsets(path: Path, offsets: dict[int, tuple[float, float, float]],
-                      header: Optional[dict] = None) -> None:
-    """Write a ``pmt-offsets`` overlay: *header* fields, then one line per PMT.
+# An ``element-offsets`` overlay holds one total offset (mm, LitePath frame)
+# per element, relative to the element's base position in the version:
+#   pmts:       channel key -> [dx, dy, dz]
+#   lappds:     LAPPD detector key (2000+ housed) -> [dx, dy, dz]
+#   surfboards: surfboard index (0, 1, 2 at 45, 90, 135 deg) -> [dx, dy, dz]
+#   history:    one entry per save (date, which elements changed)
+# The older ``pmt-offsets`` kind (PMTs only, under ``offsets``) is still read.
+OFFSET_SECTIONS = ("pmts", "lappds", "surfboards")
+_SECTION_COMMENTS = {
+    "pmts": "channel key: [dx, dy, dz]",
+    "lappds": "LAPPD detector key: [dx, dy, dz]",
+    "surfboards": "surfboard index (0, 1, 2 at 45, 90, 135 deg): [dx, dy, dz]",
+}
+Offsets = dict[int, tuple[float, float, float]]
 
-    *header* defaults to the existing file's fields other than ``offsets``.
-    Zero offsets are dropped.
+
+def _read_overlay(path: Path) -> dict:
+    path = Path(path)
+    if not path.exists():
+        raise GeometryError(f"Overlay not found: {path}")
+    with open(path) as f:
+        return yaml.safe_load(f) or {}
+
+
+def _overlay_sections(doc: dict, path: Path) -> dict[str, dict]:
+    kind = doc.get("kind")
+    if kind == "pmt-offsets":
+        return {"pmts": doc.get("offsets") or {}}
+    if kind == "element-offsets":
+        return {s: doc.get(s) or {} for s in OFFSET_SECTIONS}
+    raise GeometryError(f"{path}: unsupported overlay kind {kind!r}")
+
+
+def load_offsets(overlays: list[Path]) -> dict[str, Offsets]:
+    """Sum the offset overlays into one offset (mm) per element, by section."""
+    total: dict[str, dict[int, list[float]]] = {s: {} for s in OFFSET_SECTIONS}
+    for path in overlays:
+        for section, entries in _overlay_sections(_read_overlay(path), path).items():
+            for key, offset in entries.items():
+                if len(offset) != 3:
+                    raise GeometryError(f"{path}: offset for {section} {key} needs 3 values")
+                acc = total[section].setdefault(int(key), [0.0, 0.0, 0.0])
+                for i in range(3):
+                    acc[i] += float(offset[i])
+    return {s: {k: tuple(v) for k, v in sorted(d.items()) if any(v)} for s, d in total.items()}
+
+
+def load_pmt_offsets(overlays: list[Path]) -> Offsets:
+    """Sum the overlays' PMT offsets into one offset (mm) per channel key."""
+    return load_offsets(overlays)["pmts"]
+
+
+def read_offsets(path: Path) -> dict[str, Offsets]:
+    """Offsets of one overlay file, by section."""
+    return load_offsets([Path(path)])
+
+
+def read_pmt_offsets(path: Path) -> Offsets:
+    """PMT offsets of one overlay file."""
+    return read_offsets(path)["pmts"]
+
+
+def _offset_lines(name: str, offsets: Offsets) -> list[str]:
+    rows = [f"  {key}: [{', '.join(_format_offset(v) for v in offsets[key])}]"
+            for key in sorted(offsets) if any(abs(v) >= 5e-7 for v in offsets[key])]
+    return [f"{name}:   # {_SECTION_COMMENTS.get(name, 'key: [dx, dy, dz]')}", *rows] if rows \
+        else [f"{name}: {{}}"]
+
+
+def write_offsets(path: Path, offsets: dict[str, Offsets], header: Optional[dict] = None,
+                  history_entry: Optional[dict] = None) -> None:
+    """Write an ``element-offsets`` overlay (one line per element; zeros dropped).
+
+    *header* defaults to the existing file's descriptive fields; the history
+    is kept and *history_entry*, if given, is appended to it.
     """
+    old = _read_overlay(path) if Path(path).exists() else {}
+    if header is None:
+        header = {k: v for k, v in old.items()
+                  if k not in ("kind", "offsets", "history", *OFFSET_SECTIONS)}
+    history = list(old.get("history") or [])
+    if history_entry:
+        history.append(history_entry)
+    lines = [yaml.safe_dump({"kind": "element-offsets", **header}, sort_keys=False, width=88).rstrip()]
+    for section in OFFSET_SECTIONS:
+        lines += _offset_lines(section, offsets.get(section, {}))
+    if history:
+        lines.append(yaml.safe_dump({"history": history}, sort_keys=False, width=88,
+                                    default_flow_style=None).rstrip())
+    Path(path).write_text("\n".join(lines) + "\n")
+
+
+def write_pmt_offsets(path: Path, offsets: Offsets, header: Optional[dict] = None) -> None:
+    """Replace the PMT offsets of an overlay, keeping its other sections.
+
+    A new file or an older ``pmt-offsets`` file is written in that format;
+    an ``element-offsets`` file keeps its LAPPD and surfboard offsets and
+    history.  *header* defaults to the existing file's fields.  Zero offsets
+    are dropped.
+    """
+    if Path(path).exists() and _read_overlay(path).get("kind") == "element-offsets":
+        write_offsets(path, {**read_offsets(path), "pmts": offsets}, header)
+        return
     if header is None:
         with open(path) as f:
             header = {k: v for k, v in (yaml.safe_load(f) or {}).items() if k != "offsets"}
     header = {"kind": "pmt-offsets", **header}
     lines = [yaml.safe_dump(header, sort_keys=False, width=88).rstrip(),
-             "offsets:   # channel key: [dx, dy, dz]"]
-    for key in sorted(offsets):
-        if any(abs(v) >= 5e-7 for v in offsets[key]):
-            lines.append(f"  {key}: [{', '.join(_format_offset(v) for v in offsets[key])}]")
-    if len(lines) == 2:
-        lines[-1] = "offsets: {}"
+             *_offset_lines("offsets", offsets)]
+    lines[1] = lines[1].replace("# key:", "# channel key:")
     Path(path).write_text("\n".join(lines) + "\n")
 
 
-def read_pmt_offsets(path: Path) -> dict[int, tuple[float, float, float]]:
-    """Offsets of one ``pmt-offsets`` overlay file."""
-    return load_pmt_offsets([Path(path)])
-
-
 def editable_overlay(version: GeometryVersion) -> Optional[Path]:
-    """The overlay that PMT adjustments are saved to, or None if not editable.
+    """The overlay that adjustments are saved to, or None if not editable.
 
-    Only draft versions are editable; the last ``pmt-offsets`` overlay
-    receives the changes.
+    Only draft versions are editable; the last offsets overlay receives the
+    changes.
     """
     if version.status != STATUS_DRAFT:
         return None
     for path in reversed(version.overlays):
-        with open(path) as f:
-            if (yaml.safe_load(f) or {}).get("kind") == "pmt-offsets":
-                return path
+        if _read_overlay(path).get("kind") in ("pmt-offsets", "element-offsets"):
+            return path
     return None
-
-
-def load_pmt_offsets(overlays: list[Path]) -> dict[int, tuple[float, float, float]]:
-    """Sum the ``pmt-offsets`` overlays into one offset (mm) per channel key."""
-    total: dict[int, list[float]] = {}
-    for path in overlays:
-        if not path.exists():
-            raise GeometryError(f"Overlay not found: {path}")
-        with open(path) as f:
-            doc = yaml.safe_load(f) or {}
-        if doc.get("kind") != "pmt-offsets":
-            raise GeometryError(f"{path}: unsupported overlay kind {doc.get('kind')!r}")
-        for key, offset in (doc.get("offsets") or {}).items():
-            if len(offset) != 3:
-                raise GeometryError(f"{path}: offset for {key} needs 3 values")
-            acc = total.setdefault(int(key), [0.0, 0.0, 0.0])
-            for i in range(3):
-                acc[i] += float(offset[i])
-    return {k: tuple(v) for k, v in sorted(total.items()) if any(v)}
 
 
 # ---------------------------------------------------------------------------
@@ -321,15 +390,19 @@ def fingerprint(version: GeometryVersion, hashes: Optional[dict[str, str]] = Non
     """
     if hashes is None:
         hashes = file_hashes(version)
-    offsets = load_pmt_offsets(version.overlays)
+    offsets = load_offsets(version.overlays)
     content = {
         "settings": version.settings,
-        "pmt_offsets": {str(k): list(v) for k, v in offsets.items()},
+        "pmt_offsets": {str(k): list(v) for k, v in offsets["pmts"].items()},
         "inputs": {role: hashes[_rel(version.inputs[role])]
                    for role in INPUT_ROLES
                    if version.inputs.get(role) is not None and _rel(version.inputs[role]) in hashes},
         "files": sorted(hashes.values()),
     }
+    # Only when present, so versions without them keep their fingerprints
+    for section in ("lappds", "surfboards"):
+        if offsets[section]:
+            content[f"{section[:-1]}_offsets"] = {str(k): list(v) for k, v in offsets[section].items()}
     blob = json.dumps(content, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode()).hexdigest()
 
@@ -389,7 +462,7 @@ def load_build(version: GeometryVersion | str | Path, quiet: bool = False) -> Bu
               f"fingerprint {fp[:12]} but the version may still change")
 
     s = version.settings
-    offsets = load_pmt_offsets(version.overlays)
+    offsets = load_offsets(version.overlays)
     structure = version.inputs.get("structure") or Path("PHASE2_INNER_STRUCTURE_closed.gdml")
     if not quiet:
         print(f"Geometry: {version.name} ({version.status}, fingerprint {fp[:12]})")
@@ -406,10 +479,12 @@ def load_build(version: GeometryVersion | str | Path, quiet: bool = False) -> Bu
         lappd_model=s["lappd_model"],
         bottom_spin_deg=s["bottom_spin_deg"],
         n_surfboards=s["surfboards"],
-        pmt_offsets=offsets,
+        pmt_offsets=offsets["pmts"],
+        lappd_offsets=offsets["lappds"],
+        surfboard_offsets=offsets["surfboards"],
     )
-    return Build(geometry=geometry, version=version, fingerprint=fp, pmt_offsets=offsets)
-
+    return Build(geometry=geometry, version=version, fingerprint=fp, pmt_offsets=offsets["pmts"],
+                 lappd_offsets=offsets["lappds"], surfboard_offsets=offsets["surfboards"])
 
 
 # ---------------------------------------------------------------------------

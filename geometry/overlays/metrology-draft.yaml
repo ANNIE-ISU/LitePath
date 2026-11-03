@@ -1,12 +1,14 @@
-kind: pmt-offsets
+kind: element-offsets
 description: Draft PMT position corrections from viz-server tuning against the 3D scan overlay
   (corrections.csv, last changed 2026-06-22). Tuning is unfinished. PMTs 453 and 455 were
-  tuned while their y positions were swapped; recheck them.
+  tuned while their y positions were swapped; recheck them. LAPPD and surfboard offsets are
+  relative to their base positions in annie-2026-data.
 source: corrections.csv as saved by the viz server, which already stores offsets in the final
   structure frame (the viz server's extra 22.5 deg rotation on reload was a bug)
 units: mm
-frame: structure (after all rotations)
-offsets:   # channel key: [dx, dy, dz]
+frame: LitePath frame (litepath/geometry/frame.py); totals relative to each element's base
+  position
+pmts:   # channel key: [dx, dy, dz]
   382: [0, 0, -25.4]
   393: [0, 0, -25.4]
   396: [-2.066491, 4.988949, -22.8]
@@ -69,3 +71,5 @@ offsets:   # channel key: [dx, dy, dz]
   461: [-7.500595, 18.108038, -18.5]
   462: [-7.538863, 18.200426, -25.4]
   463: [7.309253, 17.646099, -25.4]
+lappds: {}
+surfboards: {}

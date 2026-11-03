@@ -84,6 +84,7 @@ class VizHandler(BaseHTTPRequestHandler):
     _overlay_path: Path | None = None      # draft overlay that adjustments are saved to
     _geometry_name: str = ""
     _geometry_status: str = ""
+    _build = None                          # the geometry build being served
     _lappd_corr_path: str | None = None
 
     def log_message(self, fmt, *args):
@@ -705,7 +706,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
   <label style="margin-top:0;font-size:12px;padding-left:24px;">Opacity <input type="range" id="structOpacity" min="0" max="1.0" step="0.01" value="1.0" style="width:100px;"></label>
   <label style="margin-top:2px;"><input type="checkbox" id="pmtGrey"> Grey PMTs</label>
   <label style="margin-top:0;font-size:12px;padding-left:24px;">Opacity <input type="range" id="pmtOpacity" min="0" max="1.0" step="0.01" value="0.85" style="width:100px;"></label>
-  <label style="margin-top:2px;"><input type="checkbox" id="showHW"> Show Holders</label>
+  <label style="margin-top:2px;"><input type="checkbox" id="showHW" checked> Show Holders</label>
   <label style="margin-top:2px;"><input type="checkbox" id="showRefSpheres"> Show Reference Spheres</label>
   <label style="margin-top:0;font-size:12px;padding-left:24px;">Opacity <input type="range" id="refOpacity" min="0" max="0.5" step="0.01" value="0.12" style="width:100px;"></label>
   <label style="margin-top:2px;"><input type="checkbox" id="showTubeIDs"> Show Tube IDs</label>
@@ -1611,7 +1612,7 @@ async function init() {
             pmtGroup.add(dot);
         }
         scene.add(pmtGroup);
-        pmtHWGroup.visible = false;
+        pmtHWGroup.visible = document.getElementById('showHW').checked;  // on by default
         scene.add(pmtHWGroup);
 
         // ---- Tube ID labels ----
@@ -2682,6 +2683,7 @@ def run_server(args, handler_cls=None, title="Viz server"):
     VizHandler._corrections = dict(build.pmt_offsets)
     VizHandler._geometry_name = build.version.name
     VizHandler._geometry_status = build.version.status
+    VizHandler._build = build
     VizHandler._overlay_path = editable_overlay(build.version)
     VizHandler._lappd_corr_path = str(Path(__file__).resolve().parent / "lappd_corrections.csv")
     print(f"  PMT offsets: {len(build.pmt_offsets)} from the geometry version")

@@ -150,3 +150,49 @@ def test_overlay_write_round_trip(tmp_path):
     write_pmt_offsets(path, {401: (0.0, 0.0, 0.0)})
     assert read_pmt_offsets(path) == {}
     assert "description: test" in path.read_text()
+
+
+def test_element_offsets_round_trip(tmp_path):
+    from litepath.geometry.versions import read_offsets, write_offsets, write_pmt_offsets
+    path = tmp_path / "e.yaml"
+    write_offsets(path, {"pmts": {401: (1.0, 0.0, 0.0)}, "lappds": {2001: (0.0, 0.0, 50.0)},
+                         "surfboards": {1: (0.0, -5.0, 0.0)}},
+                  header={"description": "test"}, history_entry={"date": "2026-11-02", "lappds": [2001]})
+    assert read_offsets(path) == {"pmts": {401: (1.0, 0.0, 0.0)}, "lappds": {2001: (0.0, 0.0, 50.0)},
+                                  "surfboards": {1: (0.0, -5.0, 0.0)}}
+    # the viz server's PMT save keeps the other sections and the history
+    write_pmt_offsets(path, {402: (0.0, 2.0, 0.0)})
+    doc = yaml.safe_load(path.read_text())
+    assert doc["kind"] == "element-offsets" and doc["description"] == "test"
+    assert read_offsets(path)["pmts"] == {402: (0.0, 2.0, 0.0)}
+    assert read_offsets(path)["lappds"] == {2001: (0.0, 0.0, 50.0)}
+    assert doc["history"] == [{"date": "2026-11-02", "lappds": [2001]}]
+
+
+def _draft_with(tmp_path, lappds=None, surfboards=None):
+    from litepath.geometry.versions import read_offsets, write_offsets
+    overlay = tmp_path / "o.yaml"
+    write_offsets(overlay, {**read_offsets(Path("geometry/overlays/metrology-draft.yaml")),
+                            "lappds": lappds or {}, "surfboards": surfboards or {}}, header={})
+    v = load_version("annie-2026-data-tuning")
+    v.overlays = [overlay]
+    v.settings.update(structure_mesh=False, pmt_meshes=False)
+    return v
+
+
+def test_build_applies_lappd_and_surfboard_offsets(tmp_path):
+    base = load_build(_draft_with(tmp_path), quiet=True)
+    moved = load_build(_draft_with(tmp_path, {2001: (0.0, 0.0, 50.0)}, {0: (10.0, 0.0, 0.0)}), quiet=True)
+    g0, g1 = base.geometry, moved.geometry
+    np.testing.assert_allclose(g1.lappd_housing_data[:, :3] - g0.lappd_housing_data[:, :3],
+                               [[0, 0, 0], [0, 0, 50], [0, 0, 0]], atol=1e-3)
+    np.testing.assert_allclose(g1.annie_lappd_data[1, :3] - g0.annie_lappd_data[1, :3], [0, 0, 50], atol=1e-3)
+    np.testing.assert_allclose(g1.surfboard_data[0, :3] - g0.surfboard_data[0, :3], [10, 0, 0], atol=1e-3)
+    pos = {d.id: d.position for d in g1.detectors}
+    pos0 = {d.id: d.position for d in g0.detectors}
+    np.testing.assert_allclose(np.subtract(pos[2001], pos0[2001]), [0, 0, 50], atol=1e-3)
+    assert moved.fingerprint != base.fingerprint
+    # the build records the version's fingerprint
+    assert base.fingerprint == fingerprint(_draft_with(tmp_path))
+    with pytest.raises(ValueError, match="LAPPD offset for 2005"):
+        load_build(_draft_with(tmp_path, {2005: (0.0, 0.0, 1.0)}), quiet=True)

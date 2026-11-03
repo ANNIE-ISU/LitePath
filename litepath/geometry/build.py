@@ -362,6 +362,8 @@ def build_geometry(
     bottom_spin_deg: float = 0.0,
     n_surfboards: int = 0,
     pmt_offsets: Optional[dict[int, tuple[float, float, float]]] = None,
+    lappd_offsets: Optional[dict[int, tuple[float, float, float]]] = None,
+    surfboard_offsets: Optional[dict[int, tuple[float, float, float]]] = None,
 ) -> Geometry:
     """Build a Geometry from a GDML file and optional PMT/STEP data sources.
 
@@ -380,7 +382,11 @@ def build_geometry(
 
     *pmt_offsets* maps channel key to an (dx, dy, dz) shift in mm, in the
     LitePath frame, applied to the PMT sphere centre and mesh instance
-    position (see litepath.geometry.versions).
+    position (see litepath.geometry.versions).  *lappd_offsets* (by LAPPD
+    detector key, 2000+ for housed LAPPDs) and *surfboard_offsets* (by
+    surfboard index) shift housings with their photocathodes, and surfboards,
+    the same way.  A housing's base position comes from its surfboard's base
+    position, so moving a surfboard does not move its LAPPD.
     """
     # ---- Stage 1: parse the GDML structure mesh ----
     if no_gdml:
@@ -536,6 +542,20 @@ def build_geometry(
         if sb_housing.shape[0] > 0:
             lappd_housing_data = np.concatenate([lappd_housing_data, sb_housing], axis=0)
             annie_lappd_data = np.concatenate([annie_lappd_data, sb_annie], axis=0)
+
+    # ---- Stage 5c: element offsets from the geometry version ----
+    from litepath.detectors import LAPPD_ID_OFFSET_ANNIE
+    for i, shift in (surfboard_offsets or {}).items():
+        if not 0 <= i < surfboard_data.shape[0]:
+            raise ValueError(f"surfboard offset for index {i}, but there are {surfboard_data.shape[0]}")
+        surfboard_data[i, 0:3] += np.asarray(shift, dtype=np.float32)
+    for key, shift in (lappd_offsets or {}).items():
+        i = key - LAPPD_ID_OFFSET_ANNIE
+        if not 0 <= i < lappd_housing_data.shape[0]:
+            raise ValueError(f"LAPPD offset for {key}, but there are {lappd_housing_data.shape[0]} "
+                             f"housed LAPPDs ({LAPPD_ID_OFFSET_ANNIE}+)")
+        lappd_housing_data[i, 0:3] += np.asarray(shift, dtype=np.float32)
+        annie_lappd_data[i, 0:3] += np.asarray(shift, dtype=np.float32)
 
     # ---- Stage 6: build detector registry ----
     # Creates a list of DetectorInfo objects with stable IDs (WCSim TubeIDs

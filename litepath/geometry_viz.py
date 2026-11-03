@@ -13,15 +13,42 @@ only for a draft version (e.g. ``annie-2026-data-tuning``).
 """
 from __future__ import annotations
 
+import datetime
+
+import numpy as np
+
 from litepath import viz_server
+from litepath.detectors import LAPPD_ID_OFFSET_ANNIE
+from litepath.geometry.versions import OFFSET_SECTIONS, read_offsets, write_offsets
 from litepath.viz_server import VizHandler
 
 # Routes of the viz server that belong to the muon / photon-trace side.
 _OPERATIONAL_ROUTES = ("/api/trace", "/api/lappd/readout")
+# The viz server's save-immediately routes; the workbench saves through
+# /api/offsets/save instead.
+_DIRECT_SAVE_ROUTES = ("/api/correction/save", "/api/surfboard/adjust", "/api/lappd/adjust",
+                       "/api/lappd_correction")
 
 
 class GeometryVizHandler(VizHandler):
-    """The viz server's handler with the geometry page and without photon tracing."""
+    """The viz server's handler with the geometry page and without photon tracing.
+
+    Adjustments are previewed in the page and saved together, as totals
+    relative to each element's base position, to the draft's overlay.
+    """
+
+    _saved: dict | None = None   # saved totals by section (from the build, then the saves)
+
+    @classmethod
+    def _saved_offsets(cls) -> dict:
+        if cls._saved is None:
+            build = VizHandler._build
+            cls._saved = {
+                "pmts": dict(build.pmt_offsets),
+                "lappds": dict(build.lappd_offsets),
+                "surfboards": dict(build.surfboard_offsets),
+            }
+        return cls._saved
 
     def do_GET(self):
         path = self.path.split("?")[0]
@@ -33,14 +60,93 @@ class GeometryVizHandler(VizHandler):
                 "status": VizHandler._geometry_status,
                 "editable": VizHandler._overlay_path is not None,
             })
+        elif path == "/api/offsets":
+            overlay = VizHandler._overlay_path
+            self._send_json({
+                "editable": overlay is not None,
+                "overlay": str(overlay) if overlay else None,
+                "saved": {s: {str(k): list(v) for k, v in d.items()}
+                          for s, d in self._saved_offsets().items()},
+            })
         else:
             super().do_GET()
 
     def do_POST(self):
-        if self.path.split("?")[0] in _OPERATIONAL_ROUTES:
+        path = self.path.split("?")[0]
+        if path in _OPERATIONAL_ROUTES or path in _DIRECT_SAVE_ROUTES:
             self._send_json({"error": "not available in the geometry workbench"}, 404)
+        elif path == "/api/offsets/save":
+            import json
+            length = int(self.headers.get("Content-Length", 0))
+            self._save_offsets(json.loads(self.rfile.read(length)))
         else:
             super().do_POST()
+
+    def _save_offsets(self, data: dict) -> None:
+        """Save new totals ``{section: {key: [dx, dy, dz]}}`` to the draft overlay."""
+        overlay = VizHandler._overlay_path
+        if overlay is None:
+            self._send_json({"error": f"geometry '{VizHandler._geometry_name}' is not a draft; "
+                                      "start the workbench with a draft version to save"}, 400)
+            return
+        geometry = viz_server.geometry
+        pmt_keys = list(VizHandler._pmt_data["detector_nums"])
+        n_lappd = geometry.lappd_housing_data.shape[0]
+        n_board = geometry.surfboard_data.shape[0]
+        valid = {
+            "pmts": lambda k: k in pmt_keys,
+            "lappds": lambda k: 0 <= k - LAPPD_ID_OFFSET_ANNIE < n_lappd,
+            "surfboards": lambda k: 0 <= k < n_board,
+        }
+        try:
+            changes = {s: {int(k): tuple(float(x) for x in v) for k, v in (data.get(s) or {}).items()}
+                       for s in OFFSET_SECTIONS}
+        except (TypeError, ValueError):
+            self._send_json({"error": "invalid offsets"}, 400)
+            return
+        for section, entries in changes.items():
+            bad = [k for k in entries if not valid[section](k) or len(entries[k]) != 3]
+            if bad:
+                self._send_json({"error": f"unknown {section}: {bad}"}, 400)
+                return
+        if not any(changes.values()):
+            self._send_json({"error": "nothing to save"}, 400)
+            return
+
+        # The overlay gets the change in the total (other overlays may contribute too)
+        saved = self._saved_offsets()
+        in_file = read_offsets(overlay)
+        for section, entries in changes.items():
+            for key, total in entries.items():
+                old = saved[section].get(key, (0.0, 0.0, 0.0))
+                cur = in_file[section].get(key, (0.0, 0.0, 0.0))
+                in_file[section][key] = tuple(c + n - o for c, n, o in zip(cur, total, old))
+        entry = {"date": datetime.datetime.now().isoformat(timespec="seconds")}
+        entry.update({s: sorted(e) for s, e in changes.items() if e})
+        write_offsets(overlay, in_file, history_entry=entry)
+
+        # Same change in the served geometry, so a page reload shows it
+        for section, entries in changes.items():
+            for key, total in entries.items():
+                old = np.asarray(saved[section].get(key, (0.0, 0.0, 0.0)))
+                delta = (np.asarray(total) - old).astype(np.float32)
+                if section == "pmts":
+                    i = pmt_keys.index(key)
+                    VizHandler._pmt_data["instance_positions"][i] += delta
+                    geometry.pmt_centers[i] += delta
+                    if i < geometry.pmt_instance_pos.shape[0]:  # empty with --no-pmt-holders
+                        geometry.pmt_instance_pos[i] += delta
+                    VizHandler._corrections[key] = total
+                elif section == "lappds":
+                    i = key - LAPPD_ID_OFFSET_ANNIE
+                    geometry.lappd_housing_data[i, 0:3] += delta
+                    geometry.annie_lappd_data[i, 0:3] += delta
+                else:
+                    geometry.surfboard_data[key, 0:3] += delta
+                saved[section][key] = total
+        n = sum(len(e) for e in changes.values())
+        print(f"  Saved {n} adjustment(s) to {overlay}")
+        self._send_json({"ok": True, "saved": n, "overlay": str(overlay)})
 
     def _send_html(self):
         self.send_response(200)
@@ -139,6 +245,24 @@ HTML_PAGE = r"""<!DOCTYPE html>
   #surfboard-popup .sb-row input[type=range] { width:180px; margin:0; accent-color:#4488cc; }
   #surfboard-popup button { margin:6px 4px 0; padding:5px 16px; border:none; border-radius:4px; font-size:12px; cursor:pointer; }
   #surfboard-popup #surfReset { background:#888; color:#fff; }
+  #session-bar {
+    position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:150;
+    background:rgba(245,247,250,0.95); color:#333; padding:8px 14px; border-radius:6px;
+    font-size:13px; border:1px solid rgba(0,0,0,0.12); box-shadow:0 2px 12px rgba(0,0,0,0.08);
+    text-align:center; max-width:560px;
+  }
+  #session-bar.dirty { background:rgba(255,236,200,0.97); border-color:#d9a441; }
+  #session-bar button { margin-left:8px; padding:4px 12px; border:none; border-radius:4px; font-size:12px;
+    cursor:pointer; background:#4488cc; color:#fff; }
+  #session-bar button#discardAll { background:#888; }
+  #session-bar button:disabled { opacity:0.45; cursor:default; }
+  #sessionDetail { font-size:11px; color:#666; margin-top:3px; }
+  .keep-row { margin-top:6px; }
+  .keep-row button { margin:4px 3px 0 !important; }
+  .btn-keep { background:#3a9a5b !important; color:#fff; }
+  .btn-revert { background:#b0763a !important; color:#fff; }
+  .btn-cancel { background:#ccc !important; color:#333 !important; }
+  .adj-state { font-size:11px; color:#996600; margin-top:4px; min-height:14px; }
   #surfboard-popup #surfReset:hover { background:#999; }
 </style>
 </head>
@@ -160,10 +284,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
   <label>Ambient <span id="ambientVal">0.50</span>
     <input type="range" id="ambient" min="0" max="2.0" step="0.01" value="0.50"></label>
   <hr style="margin:8px 0;border:none;border-top:1px solid rgba(0,0,0,0.1);">
-  <label>LAPPD dx <input type="number" id="lappdDx" step="1" value="0" style="width:70px;"></label>
-  <label>LAPPD dy <input type="number" id="lappdDy" step="1" value="0" style="width:70px;"></label>
-  <label>LAPPD dz <input type="number" id="lappdDz" step="1" value="0" style="width:70px;"></label>
-  <button id="saveLappdCorr">Save Correction</button>
   <button id="focusLAPPD" disabled>Focus on LAPPD</button>
   <label style="margin-top:6px;"><input type="checkbox" id="lappdGrey"> Grey LAPPD</label>
   <div id="surfboard-adjust" style="display:none;"></div>
@@ -172,7 +292,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
   <label style="margin-top:0;font-size:12px;padding-left:24px;">Opacity <input type="range" id="structOpacity" min="0" max="1.0" step="0.01" value="1.0" style="width:100px;"></label>
   <label style="margin-top:2px;"><input type="checkbox" id="pmtGrey"> Grey PMTs</label>
   <label style="margin-top:0;font-size:12px;padding-left:24px;">Opacity <input type="range" id="pmtOpacity" min="0" max="1.0" step="0.01" value="0.85" style="width:100px;"></label>
-  <label style="margin-top:2px;"><input type="checkbox" id="showHW"> Show Holders</label>
+  <label style="margin-top:2px;"><input type="checkbox" id="showHW" checked> Show Holders</label>
   <label style="margin-top:2px;"><input type="checkbox" id="showRefSpheres"> Show Reference Spheres</label>
   <label style="margin-top:0;font-size:12px;padding-left:24px;">Opacity <input type="range" id="refOpacity" min="0" max="0.5" step="0.01" value="0.12" style="width:100px;"></label>
   <label style="margin-top:2px;"><input type="checkbox" id="showTubeIDs"> Show Tube IDs</label>
@@ -216,6 +336,12 @@ HTML_PAGE = r"""<!DOCTYPE html>
   <div style="margin-top:4px;font-size:11px;color:#666;">Click a PMT, surfboard or LAPPD housing to adjust it</div>
 </div>
 <div id="status">Loading geometry…</div>
+<div id="session-bar">
+  <span id="sessionText">No unsaved changes</span>
+  <button id="saveAll" disabled>Save to draft</button>
+  <button id="discardAll" disabled>Discard all</button>
+  <div id="sessionDetail"></div>
+</div>
 <div id="info">Drag to orbit · Scroll to zoom · Right-drag to pan</div>
 <div id="pmt-adjust">
   <div style="margin-bottom:6px;"><b>PMT <span id="adj-tube-id"></span></b> <span id="adj-type" style="color:#888;font-size:11px;"></span></div>
@@ -236,10 +362,12 @@ HTML_PAGE = r"""<!DOCTYPE html>
       <span class="val" id="adj-val-2">0.0</span> mm
     </div>
   </div>
+  <div class="adj-state" id="adj-state"></div>
   <div style="margin-top:4px;">
-    <button id="adj-save">Save</button>
-    <button id="adj-reset">Reset</button>
-    <button id="adj-cancel">Cancel</button>
+    <button id="adj-save" class="btn-keep" title="Keep this position for the session (Save to draft makes it permanent)">Keep</button>
+    <button id="adj-cancel" class="btn-cancel" title="Undo the slider changes since you opened this PMT">Cancel</button>
+    <button id="adj-revert" class="btn-revert" title="Back to the position saved in the draft">Revert to saved</button>
+    <button id="adj-reset" title="Sliders to zero: the base position, no offset">Base</button>
   </div>
 </div>
 
@@ -482,12 +610,93 @@ document.getElementById('mz').addEventListener('change', updateScene);
 // ---- Geometry name ----
 fetch('/api/geometry').then(r => r.json()).then(g => {
     document.getElementById('geometryName').textContent =
-        `${g.name} (${g.status})` + (g.editable ? ' · PMT adjustments are saved' : ' · view only (not a draft)');
+        `${g.name} (${g.status})` + (g.editable ? ' · adjustments can be saved to the draft'
+                                                : ' · view only (not a draft): changes cannot be saved');
 }).catch(() => {});
+
+// ---- Adjustments: preview, keep, save ----
+// Every element's offset is a total relative to its base position in the
+// geometry version.  Slider moves are previews; Keep adds the element's new
+// total to this session's changes; Save to draft writes them all.
+const SECTIONS = ['pmts', 'lappds', 'surfboards'];
+const SECTION_NAMES = {pmts: 'PMT', lappds: 'LAPPD', surfboards: 'Surfboard'};
+let savedOffsets = {pmts: {}, lappds: {}, surfboards: {}};
+const pending = {pmts: {}, lappds: {}, surfboards: {}};
+const pendingRevert = {pmts: {}, lappds: {}, surfboards: {}};  // key -> fn putting it back to saved
+let offsetsEditable = false;
+let overlayName = '';
+
+async function loadOffsets() {
+    const o = await (await fetch('/api/offsets')).json();
+    for (const s of SECTIONS) savedOffsets[s] = o.saved[s] || {};
+    offsetsEditable = o.editable;
+    overlayName = o.overlay ? o.overlay.split('/').pop() : '';
+    updateSessionBar();
+}
+function savedOf(section, key) { return savedOffsets[section][String(key)] || [0, 0, 0]; }
+function totalOf(section, key) { return pending[section][String(key)] || savedOf(section, key); }
+function nearlyEqual(a, b) { return a.every((v, i) => Math.abs(v - b[i]) < 0.05); }
+function keepChange(section, key, total, revertFn) {
+    const k = String(key);
+    if (nearlyEqual(total, savedOf(section, k))) {
+        delete pending[section][k]; delete pendingRevert[section][k];
+    } else {
+        pending[section][k] = total.map(v => Math.round(v * 1000) / 1000);
+        pendingRevert[section][k] = revertFn;
+    }
+    updateSessionBar();
+}
+function dropChange(section, key) {
+    delete pending[section][String(key)]; delete pendingRevert[section][String(key)];
+    updateSessionBar();
+}
+function nPending() { return SECTIONS.reduce((n, s) => n + Object.keys(pending[s]).length, 0); }
+function stateText(section, key) {
+    const k = String(key);
+    const fmt = v => '(' + v.map(x => x.toFixed(1)).join(', ') + ') mm';
+    const saved = 'saved offset ' + fmt(savedOf(section, k));
+    return pending[section][k] ? `kept, not saved yet: ${fmt(pending[section][k])} · ${saved}` : saved;
+}
+function updateSessionBar() {
+    const n = nPending();
+    const bar = document.getElementById('session-bar');
+    bar.classList.toggle('dirty', n > 0);
+    document.getElementById('sessionText').textContent = n === 0
+        ? (offsetsEditable ? `No unsaved changes · saving to ${overlayName}` : 'View only: changes cannot be saved')
+        : `${n} unsaved change${n > 1 ? 's' : ''}`;
+    document.getElementById('saveAll').disabled = n === 0 || !offsetsEditable;
+    document.getElementById('discardAll').disabled = n === 0;
+    const parts = [];
+    for (const s of SECTIONS) for (const k of Object.keys(pending[s])) parts.push(`${SECTION_NAMES[s]} ${k}`);
+    document.getElementById('sessionDetail').textContent =
+        parts.join(', ') + (n > 0 && !offsetsEditable ? ' · not a draft: cannot be saved' : '');
+}
+document.getElementById('saveAll').addEventListener('click', async () => {
+    const resp = await fetch('/api/offsets/save', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(pending),
+    });
+    const r = await resp.json();
+    if (!resp.ok) { document.getElementById('sessionDetail').textContent = 'Save failed: ' + r.error; return; }
+    for (const s of SECTIONS) {
+        for (const k of Object.keys(pending[s])) savedOffsets[s][k] = pending[s][k];
+        pending[s] = {}; pendingRevert[s] = {};
+    }
+    updateSessionBar();
+    document.getElementById('sessionText').textContent = `Saved ${r.saved} change${r.saved > 1 ? 's' : ''} to ${overlayName}`;
+});
+document.getElementById('discardAll').addEventListener('click', () => {
+    for (const s of SECTIONS) for (const k of Object.keys(pendingRevert[s])) pendingRevert[s][k]();
+    for (const s of SECTIONS) { pending[s] = {}; pendingRevert[s] = {}; }
+    updateSessionBar();
+});
+window.addEventListener('beforeunload', (e) => {
+    if (nPending() > 0) { e.preventDefault(); e.returnValue = ''; }
+});
 
 // ---- Init ----
 async function init() {
     try {
+        await loadOffsets();
         statusEl.textContent = 'Loading structure mesh…';
         const meshGeo = await loadMesh();
 
@@ -760,7 +969,7 @@ async function init() {
             pmtGroup.add(dot);
         }
         scene.add(pmtGroup);
-        pmtHWGroup.visible = false;
+        pmtHWGroup.visible = document.getElementById('showHW').checked;  // on by default
         scene.add(pmtHWGroup);
 
         // ---- Tube ID labels ----
@@ -896,7 +1105,7 @@ async function init() {
                 );
                 boxMesh.quaternion.setFromRotationMatrix(m4);
                 boxMesh.castShadow = true;
-                boxMesh.receiveShadow = true;
+                boxMesh.receiveShadow = false;  // opaque here: self-shadowing speckles it
                 boxMesh.userData = {
                     isHousing: true,
                     hIdx: hidx,
@@ -906,6 +1115,9 @@ async function init() {
                     axisY: new THREE.Vector3(h.axis_y[0], h.axis_y[1], h.axis_y[2]),
                     axisZ: new THREE.Vector3(h.axis_z[0], h.axis_z[1], h.axis_z[2]),
                 };
+                const hSaved = new THREE.Vector3(...savedOf('lappds', 2000 + hidx));  // served positions include saved offsets
+                boxMesh.userData.base = origCenter.clone().sub(hSaved);
+                boxMesh.userData.basePC = origPC.clone().sub(hSaved);
                 scene.add(boxMesh);
 
                 const pcGeo = new THREE.PlaneGeometry(h.pc_half[0]*2, h.pc_half[0]*2);
@@ -913,59 +1125,13 @@ async function init() {
                 pcMesh.position.copy(origPC);
                 pcMesh.quaternion.copy(boxMesh.quaternion);
                 pcMesh.castShadow = true;
-                pcMesh.receiveShadow = true;
+                pcMesh.receiveShadow = false;
                 scene.add(pcMesh);
 
                 housingMeshes.push({box: boxMesh, pc: pcMesh});
                 housingCorrOrigins.push({center: origCenter.clone(), pc: origPC.clone()});
                 hidx++;
             }
-
-            // LAPPD global dx/dy/dz corrections (applied to ALL housings)
-            const dxInput = document.getElementById('lappdDx');
-            const dyInput = document.getElementById('lappdDy');
-            const dzInput = document.getElementById('lappdDz');
-            const saveBtn = document.getElementById('saveLappdCorr');
-
-            const corrResp = await fetch('/api/lappd_correction');
-            const corrData = await corrResp.json();
-            let lappdCorr = {dx: 0, dy: 0, dz: 0};
-            if (corrData.corrections && corrData.corrections.length > 0) {
-                const c = corrData.corrections[0];
-                lappdCorr = {dx: parseFloat(c.dx), dy: parseFloat(c.dy), dz: parseFloat(c.dz)};
-            }
-            dxInput.value = lappdCorr.dx;
-            dyInput.value = lappdCorr.dy;
-            dzInput.value = lappdCorr.dz;
-
-            function applyLappdCorrection() {
-                const dx = parseFloat(dxInput.value) || 0;
-                const dy = parseFloat(dyInput.value) || 0;
-                const dz = parseFloat(dzInput.value) || 0;
-                for (let i = 0; i < housingMeshes.length; i++) {
-                    const hm = housingMeshes[i];
-                    const orig = housingCorrOrigins[i];
-                    hm.box.position.set(orig.center.x + dx, orig.center.y + dy, orig.center.z + dz);
-                    hm.pc.position.set(orig.pc.x + dx, orig.pc.y + dy, orig.pc.z + dz);
-                }
-            }
-
-            applyLappdCorrection();
-
-            saveBtn.addEventListener('click', async () => {
-                const body = JSON.stringify({
-                    idx: 0,
-                    dx: parseFloat(dxInput.value) || 0,
-                    dy: parseFloat(dyInput.value) || 0,
-                    dz: parseFloat(dzInput.value) || 0,
-                });
-                await fetch('/api/lappd_correction', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body,
-                });
-                applyLappdCorrection();
-            });
 
             // Grey LAPPD checkbox
             const greyCheck = document.getElementById('lappdGrey');
@@ -984,7 +1150,7 @@ async function init() {
                     } else {
                         hm.box.material.color.setHex(0x446688);
                         hm.box.material.transparent = true;
-                        hm.box.material.opacity = 0.25;
+                        hm.box.material.opacity = 0.8;
                         hm.box.material.roughness = 0.6;
                         hm.box.material.metalness = 0.0;
                         hm.pc.material.color.setHex(0x88bbdd);
@@ -1034,6 +1200,8 @@ async function init() {
                     axisY: new THREE.Vector3(sb.axis_y[0], sb.axis_y[1], sb.axis_y[2]),
                     axisZ: new THREE.Vector3(sb.axis_z[0], sb.axis_z[1], sb.axis_z[2]),
                 };
+                const sbSaved = savedOf('surfboards', sbIdx);   // served positions include saved offsets
+                mesh.userData.base = mesh.userData.origCenter.clone().sub(new THREE.Vector3(...sbSaved));
                 scene.add(mesh);
                 surfMeshes.push(mesh);
                 sbIdx++;
@@ -1291,6 +1459,13 @@ async function init() {
         let meshStartPos = null;
         let selectedStartSliders = null;
         let adjBasis = null;
+        let pmtBase = null;  // base position of the selected PMT (no offset)
+
+        function movePMT(idx, pos) {
+            for (const g of [pmtGroup, pmtHWGroup]) {
+                g.children.forEach(ch => { if (ch.userData && ch.userData.pmtIdx === idx) ch.position.copy(pos); });
+            }
+        }
 
         function sliderToCartesian(vals, basis) {
             if (basis.mode === 'global') {
@@ -1344,6 +1519,8 @@ async function init() {
         }
 
         function deselectPMT() {
+            // Leaving a PMT without Keep undoes its preview
+            if (selectedIdx >= 0 && meshStartPos) movePMT(selectedIdx, meshStartPos);
             if (selectedMesh) {
                 selectedMesh.material.emissive.setHex(0x000000);
                 selectedMesh.material.emissiveIntensity = 0;
@@ -1366,7 +1543,8 @@ async function init() {
             const tubeId = pmtData.detector_nums[idx];
             const type = pmtData.types[idx];
             const dir = pmtData.directions[idx];
-            const corr = pmtData.corrections[tubeId] || [0, 0, 0];
+            const corr = totalOf('pmts', tubeId);
+            document.getElementById('adj-state').textContent = stateText('pmts', tubeId);
 
             document.getElementById('adj-tube-id').textContent = tubeId;
             document.getElementById('adj-type').textContent = type;
@@ -1413,6 +1591,7 @@ async function init() {
 
             // Record start state for preview
             meshStartPos = selectedMesh ? selectedMesh.position.clone() : new THREE.Vector3(0,0,0);
+            pmtBase = meshStartPos.clone().sub(new THREE.Vector3(corr[0], corr[1], corr[2]));
             selectedStartSliders = [v0, v1, v2];
             adjBasis = { mode, eAxial: eAxial.clone(), eTang: eTang.clone(), eVert: eVert.clone() };
         }
@@ -1468,49 +1647,27 @@ async function init() {
             });
         }
 
-        document.getElementById('adj-save').addEventListener('click', async () => {
+        document.getElementById('adj-save').addEventListener('click', () => {
+            if (selectedIdx < 0 || !adjBasis) return;
+            const idx = selectedIdx;
+            const tubeId = pmtData.detector_nums[idx];
+            const vals = [0, 1, 2].map(k => parseFloat(document.getElementById('adj-' + k).value));
+            const total = sliderToCartesian(vals, adjBasis);
+            const base = pmtBase.clone();
+            keepChange('pmts', tubeId, [total.x, total.y, total.z], () => {
+                const s = savedOf('pmts', tubeId);
+                movePMT(idx, base.clone().add(new THREE.Vector3(s[0], s[1], s[2])));
+            });
+            meshStartPos = base.clone().add(total);   // kept: deselecting no longer undoes it
+            deselectPMT();
+        });
+
+        document.getElementById('adj-revert').addEventListener('click', () => {
             if (selectedIdx < 0) return;
             const tubeId = pmtData.detector_nums[selectedIdx];
-            const axial = parseFloat(document.getElementById('adj-0').value);
-            const tangential = parseFloat(document.getElementById('adj-1').value);
-            const vertical = parseFloat(document.getElementById('adj-2').value);
-
-            // Capture current live-preview position before the fetch
-            const currentPos = new THREE.Vector3();
-            pmtGroup.children.some(ch => {
-                if (ch.userData && ch.userData.pmtIdx === selectedIdx) {
-                    currentPos.copy(ch.position);
-                    return true;
-                }
-                return false;
-            });
-
-            const resp = await fetch('/api/correction/save', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({tube_id: tubeId, axial, tangential, vertical}),
-            });
-            const result = await resp.json();
-            if (result.success) {
-                // Use the live-preview position directly (more reliable than server round-trip)
-                pmtGroup.children.forEach(ch => {
-                    if (ch.userData && ch.userData.pmtIdx === selectedIdx) {
-                        ch.position.copy(currentPos);
-                    }
-                });
-                pmtHWGroup.children.forEach(ch => {
-                    if (ch.userData && ch.userData.pmtIdx === selectedIdx) {
-                        ch.position.copy(currentPos);
-                    }
-                });
-                // Update start state so Cancel doesn't revert
-                meshStartPos = currentPos.clone();
-                selectedStartSliders = [
-                    parseFloat(document.getElementById('adj-0').value),
-                    parseFloat(document.getElementById('adj-1').value),
-                    parseFloat(document.getElementById('adj-2').value),
-                ];
-            }
+            const s = savedOf('pmts', tubeId);
+            meshStartPos = pmtBase.clone().add(new THREE.Vector3(s[0], s[1], s[2]));
+            dropChange('pmts', tubeId);
             deselectPMT();
         });
 
@@ -1524,47 +1681,53 @@ async function init() {
 
         document.getElementById('adj-cancel').addEventListener('click', cancelAdjustment);
 
+        // ---- Local frames for surfboards and housings: [vertical, radial, tangential] ----
+        function localToCart(v, ud) {
+            return ud.axisY.clone().multiplyScalar(v[0])
+                .add(ud.axisZ.clone().multiplyScalar(v[1]))
+                .add(ud.axisX.clone().multiplyScalar(v[2]));
+        }
+        function cartToLocal(c, ud) {
+            const t = new THREE.Vector3(c[0], c[1], c[2]);
+            return [t.dot(ud.axisY), t.dot(ud.axisZ), t.dot(ud.axisX)];
+        }
+        function setSliders(prefix, local) {
+            ['Vert', 'Rad', 'Tang'].forEach((axis, k) => {
+                const v = Math.round(local[k] * 10) / 10;
+                document.getElementById(prefix + axis).value = v;
+                document.getElementById(prefix + axis + 'Num').value = v;
+            });
+        }
+        function readSliders(prefix) {
+            return ['Vert', 'Rad', 'Tang'].map(axis => parseFloat(document.getElementById(prefix + axis).value) || 0);
+        }
+
         // ---- Surfboard interactive position popup ----
         const surfPopup = document.getElementById('surfboard-popup');
+        let surfStart = null;   // position when the surfboard was opened (Cancel goes back here)
 
         function updateSurfboardPosition() {
             const idx = selectedSurfboard;
             if (idx < 0 || idx >= surfMeshes.length) return;
             const mesh = surfMeshes[idx];
-            const ud = mesh.userData;
-            const dVert = parseFloat(document.getElementById('surfVert').value) || 0;
-            const dRad = parseFloat(document.getElementById('surfRad').value) || 0;
-            const dTang = parseFloat(document.getElementById('surfTang').value) || 0;
-
-            const dcx = dVert * ud.axisY.x + dRad * ud.axisZ.x + dTang * ud.axisX.x;
-            const dcy = dVert * ud.axisY.y + dRad * ud.axisZ.y + dTang * ud.axisX.y;
-            const dcz = dVert * ud.axisY.z + dRad * ud.axisZ.z + dTang * ud.axisX.z;
-
-            const newCx = ud.origCenter.x + dcx;
-            const newCy = ud.origCenter.y + dcy;
-            const newCz = ud.origCenter.z + dcz;
-            mesh.position.set(newCx, newCy, newCz);
-
-            fetch('/api/surfboard/adjust', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({index: idx, cx: newCx, cy: newCy, cz: newCz}),
-            }).catch(() => {});
+            mesh.position.copy(mesh.userData.base.clone().add(localToCart(readSliders('surf'), mesh.userData)));
         }
 
         function selectSurfboard(idx) {
             selectedSurfboard = idx;
+            const mesh = surfMeshes[idx];
+            surfStart = mesh.position.clone();
             document.getElementById('surfPopupIdx').textContent = idx + 1;
-            for (const axis of ['Vert', 'Rad', 'Tang']) {
-                document.getElementById('surf' + axis).value = 0;
-                document.getElementById('surf' + axis + 'Num').value = 0;
-            }
+            setSliders('surf', cartToLocal(totalOf('surfboards', idx), mesh.userData));
+            document.getElementById('surfState').textContent = stateText('surfboards', idx);
             surfPopup.style.display = 'block';
         }
 
         function deselectSurfboard() {
             if (selectedSurfboard < 0) return;
+            if (surfStart) surfMeshes[selectedSurfboard].position.copy(surfStart);  // not kept: undo
             selectedSurfboard = -1;
+            surfStart = null;
             surfPopup.style.display = 'none';
         }
 
@@ -1586,72 +1749,72 @@ async function init() {
         }
 
         document.getElementById('surfReset').addEventListener('click', () => {
+            if (selectedSurfboard < 0) return;
+            setSliders('surf', [0, 0, 0]);
+            updateSurfboardPosition();
+        });
+        document.getElementById('surfKeep').addEventListener('click', () => {
             const idx = selectedSurfboard;
-            if (idx < 0 || idx >= surfMeshes.length) return;
+            if (idx < 0) return;
             const mesh = surfMeshes[idx];
-            const orig = mesh.userData.origCenter;
-            mesh.position.copy(orig);
-            for (const axis of ['Vert', 'Rad', 'Tang']) {
-                document.getElementById('surf' + axis).value = 0;
-                document.getElementById('surf' + axis + 'Num').value = 0;
-            }
-            fetch('/api/surfboard/adjust', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({index: idx, cx: orig.x, cy: orig.y, cz: orig.z}),
-            }).catch(() => {});
+            const total = localToCart(readSliders('surf'), mesh.userData);
+            keepChange('surfboards', idx, [total.x, total.y, total.z], () => {
+                const s = savedOf('surfboards', idx);
+                mesh.position.copy(mesh.userData.base.clone().add(new THREE.Vector3(s[0], s[1], s[2])));
+            });
+            surfStart = mesh.position.clone();
+            deselectSurfboard();
+        });
+        document.getElementById('surfCancel').addEventListener('click', deselectSurfboard);
+        document.getElementById('surfRevert').addEventListener('click', () => {
+            const idx = selectedSurfboard;
+            if (idx < 0) return;
+            const mesh = surfMeshes[idx];
+            const s = savedOf('surfboards', idx);
+            surfStart = mesh.userData.base.clone().add(new THREE.Vector3(s[0], s[1], s[2]));
+            dropChange('surfboards', idx);
+            deselectSurfboard();
         });
 
-        document.getElementById('surfPopupClose').addEventListener('click', deselectSurfboard);
+        document.getElementById('surfPopupClose').addEventListener('click', deselectSurfboard);  // = Cancel
 
         // ---- LAPPD housing interactive position popup ----
         const housingPopup = document.getElementById('housing-popup');
+        const LAPPD_KEY0 = 2000;   // housed-LAPPD detector keys are 2000 + index
+        let housingStart = null;   // [box, pc] positions when opened (Cancel goes back here)
+
+        function placeHousing(hm, total) {
+            const ud = hm.box.userData;
+            hm.box.position.copy(ud.base.clone().add(total));
+            hm.pc.position.copy(ud.basePC.clone().add(total));
+        }
 
         function updateHousingPosition() {
             const idx = selectedHousing;
             if (idx < 0 || idx >= housingMeshes.length) return;
             const hm = housingMeshes[idx];
-            const ud = hm.box.userData;
-            const dVert = parseFloat(document.getElementById('hVert').value) || 0;
-            const dRad = parseFloat(document.getElementById('hRad').value) || 0;
-            const dTang = parseFloat(document.getElementById('hTang').value) || 0;
-
-            const dcx = dVert * ud.axisY.x + dRad * ud.axisZ.x + dTang * ud.axisX.x;
-            const dcy = dVert * ud.axisY.y + dRad * ud.axisZ.y + dTang * ud.axisX.y;
-            const dcz = dVert * ud.axisY.z + dRad * ud.axisZ.z + dTang * ud.axisX.z;
-
-            const newCx = ud.origCenter.x + dcx;
-            const newCy = ud.origCenter.y + dcy;
-            const newCz = ud.origCenter.z + dcz;
-            hm.box.position.set(newCx, newCy, newCz);
-
-            // PC moves by the same delta
-            hm.pc.position.set(
-                ud.origPC.x + dcx,
-                ud.origPC.y + dcy,
-                ud.origPC.z + dcz,
-            );
-
-            fetch('/api/lappd/adjust', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({index: idx, cx: newCx, cy: newCy, cz: newCz}),
-            }).catch(() => {});
+            placeHousing(hm, localToCart(readSliders('h'), hm.box.userData));
         }
 
         function selectHousing(idx) {
             selectedHousing = idx;
-            document.getElementById('hPopupIdx').textContent = idx + 1;
-            for (const axis of ['Vert', 'Rad', 'Tang']) {
-                document.getElementById('h' + axis).value = 0;
-                document.getElementById('h' + axis + 'Num').value = 0;
-            }
+            const hm = housingMeshes[idx];
+            housingStart = [hm.box.position.clone(), hm.pc.position.clone()];
+            document.getElementById('hPopupIdx').textContent = `${idx + 1} (detector key ${LAPPD_KEY0 + idx})`;
+            setSliders('h', cartToLocal(totalOf('lappds', LAPPD_KEY0 + idx), hm.box.userData));
+            document.getElementById('hState').textContent = stateText('lappds', LAPPD_KEY0 + idx);
             housingPopup.style.display = 'block';
         }
 
         function deselectHousing() {
             if (selectedHousing < 0) return;
+            if (housingStart) {  // not kept: undo
+                const hm = housingMeshes[selectedHousing];
+                hm.box.position.copy(housingStart[0]);
+                hm.pc.position.copy(housingStart[1]);
+            }
             selectedHousing = -1;
+            housingStart = null;
             housingPopup.style.display = 'none';
         }
 
@@ -1672,26 +1835,38 @@ async function init() {
         }
 
         document.getElementById('hReset').addEventListener('click', () => {
+            if (selectedHousing < 0) return;
+            setSliders('h', [0, 0, 0]);
+            updateHousingPosition();
+        });
+        document.getElementById('hKeep').addEventListener('click', () => {
             const idx = selectedHousing;
-            if (idx < 0 || idx >= housingMeshes.length) return;
+            if (idx < 0) return;
             const hm = housingMeshes[idx];
-            const ud = hm.box.userData;
-            const orig = ud.origCenter;
-            const origPC = ud.origPC;
-            hm.box.position.copy(orig);
-            hm.pc.position.copy(origPC);
-            for (const axis of ['Vert', 'Rad', 'Tang']) {
-                document.getElementById('h' + axis).value = 0;
-                document.getElementById('h' + axis + 'Num').value = 0;
-            }
-            fetch('/api/lappd/adjust', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({index: idx, cx: orig.x, cy: orig.y, cz: orig.z}),
-            }).catch(() => {});
+            const total = localToCart(readSliders('h'), hm.box.userData);
+            keepChange('lappds', LAPPD_KEY0 + idx, [total.x, total.y, total.z], () => {
+                const s = savedOf('lappds', LAPPD_KEY0 + idx);
+                placeHousing(hm, new THREE.Vector3(s[0], s[1], s[2]));
+            });
+            housingStart = [hm.box.position.clone(), hm.pc.position.clone()];
+            deselectHousing();
+        });
+        document.getElementById('hCancel').addEventListener('click', deselectHousing);
+        document.getElementById('hRevert').addEventListener('click', () => {
+            const idx = selectedHousing;
+            if (idx < 0) return;
+            const hm = housingMeshes[idx];
+            const s = savedOf('lappds', LAPPD_KEY0 + idx);
+            placeHousing(hm, new THREE.Vector3(s[0], s[1], s[2]));
+            housingStart = [hm.box.position.clone(), hm.pc.position.clone()];
+            dropChange('lappds', LAPPD_KEY0 + idx);
+            deselectHousing();
         });
 
-        document.getElementById('hPopupClose').addEventListener('click', deselectHousing);
+        document.getElementById('hPopupClose').addEventListener('click', deselectHousing);  // = Cancel
+
+        // For the browser console and the tests: open an element's popup by index
+        window.workbench = { selectPMT, selectHousing, selectSurfboard, pending, savedOffsets: () => savedOffsets };
 
     } catch (e) {
         statusEl.textContent = 'Error: ' + e.message;
@@ -1743,8 +1918,12 @@ init();
     <input type="number" id="surfTangNum" step="1" value="0">
     <input type="range" id="surfTang" min="-800" max="800" step="1" value="0">
   </div>
-  <div>
-    <button id="surfReset">Reset</button>
+  <div class="adj-state" id="surfState"></div>
+  <div class="keep-row">
+    <button id="surfKeep" class="btn-keep" title="Keep this position for the session (Save to draft makes it permanent)">Keep</button>
+    <button id="surfCancel" class="btn-cancel" title="Undo the slider changes since you opened this Surfboard">Cancel</button>
+    <button id="surfRevert" class="btn-revert" title="Back to the position saved in the draft">Revert to saved</button>
+    <button id="surfReset" title="Sliders to zero: the base position, no offset">Base</button>
   </div>
 </div>
 
@@ -1769,8 +1948,12 @@ init();
     <input type="number" id="hTangNum" step="1" value="0">
     <input type="range" id="hTang" min="-800" max="800" step="1" value="0">
   </div>
-  <div>
-    <button id="hReset">Reset</button>
+  <div class="adj-state" id="hState"></div>
+  <div class="keep-row">
+    <button id="hKeep" class="btn-keep" title="Keep this position for the session (Save to draft makes it permanent)">Keep</button>
+    <button id="hCancel" class="btn-cancel" title="Undo the slider changes since you opened this LAPPD">Cancel</button>
+    <button id="hRevert" class="btn-revert" title="Back to the position saved in the draft">Revert to saved</button>
+    <button id="hReset" title="Sliders to zero: the base position, no offset">Base</button>
   </div>
 </div>
 
