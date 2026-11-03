@@ -28,7 +28,8 @@ from scipy.spatial import KDTree
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 SCAN_DIR = PROJECT_DIR / "scan files by part" / "transformed"
-CSV_PATH = PROJECT_DIR / "PMTPositions_Scan.txt"
+CSV_PATH = PROJECT_DIR / "PMTPositions_Scan.txt"            # panels, directions, type codes
+SEED_TABLE = PROJECT_DIR / "geometry" / "base" / "FullTankPMTGeometry.csv"  # positions (453/455 fixed)
 
 # PMT type info
 PMT_TYPE_NAMES = {
@@ -59,9 +60,9 @@ def transform_csv_to_gdml() -> tuple[np.ndarray, np.ndarray, np.ndarray,
     dirs = data[:, 5:8]
     type_codes = data[:, 8].astype(int)
 
-    # PMT positions as LitePath builds them, taken back into the GDML
-    # structure frame the scan meshes are registered in
-    pmts = load_pmts(CSV_PATH)
+    # PMT positions as LitePath builds them from the ToolAnalysis table, taken
+    # back into the GDML structure frame the scan meshes are registered in
+    pmts = load_pmts(SEED_TABLE)
     assert list(pmts["detector_nums"]) == list(tube_ids)
     centers = frame_to_structure(np.asarray(pmts["centers"], dtype=np.float64))
     return centers, tube_ids, panel_nrs, dirs, type_codes
@@ -234,13 +235,17 @@ def main():
     # Load scan mesh
     print("Loading AllPMTs scan mesh...")
     mesh_path = SCAN_DIR / "AllPMTs.ply"
-    if not mesh_path.exists():
-        print(f"ERROR: {mesh_path} not found. Run register_scan.py first.")
+    npy_path = SCAN_DIR / "AllPMTs_verts.npy"   # written by preprocess_scan.py
+    faces = None
+    if mesh_path.exists():
+        mesh = trimesh.load(str(mesh_path))
+        verts, faces = np.asarray(mesh.vertices), np.asarray(mesh.faces)
+    elif npy_path.exists():
+        verts = np.load(npy_path).astype(np.float64)
+    else:
+        print(f"ERROR: neither {mesh_path} nor {npy_path} found. Run register_scan.py first.")
         return
-    mesh = trimesh.load(str(mesh_path))
-    verts = np.asarray(mesh.vertices)
-    faces = np.asarray(mesh.faces)
-    print(f"  {len(verts)} vertices, {len(faces)} faces")
+    print(f"  {len(verts)} vertices")
 
     # Load and transform CSV positions
     print("Loading CSV PMT positions...")
@@ -309,7 +314,9 @@ def main():
 
     # Launch viewer
     should_view = args.view or not args.no_view
-    if should_view:
+    if should_view and faces is None:
+        print("\nThe viewer needs AllPMTs.ply (only the .npy vertices were found); skipping it.")
+    elif should_view:
         try:
             print("\nLaunching 3D viewer...")
             scene = build_viewer_scene(verts, faces, tips)
