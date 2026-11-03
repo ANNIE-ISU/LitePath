@@ -1,9 +1,11 @@
 name: annie-2026-data-tuning
 status: draft
 description: >-
-  Working version for PMT position tuning: annie-2026-data plus the
-  unfinished metrology-draft offsets (today's corrections.csv). Tag a copy
-  under a new name once tuning is done.
+  Working version for tuning PMT, LAPPD and surfboard positions in
+  litepath geometry-viz: annie-2026-data plus the offsets in
+  metrology-draft.yaml (the working file). When a state is good, freeze it
+  with litepath geometry snapshot (see docs/GEOMETRY_TUNING.md); the
+  pre-2026-11 corrections are archived as annie-2026-data-v0.1.
 inputs:
   pmt_table: geometry/base/FullTankPMTGeometry.csv
   structure: PHASE2_INNER_STRUCTURE_closed.gdml

@@ -280,17 +280,18 @@ def _offset_lines(name: str, offsets: Offsets) -> list[str]:
 
 
 def write_offsets(path: Path, offsets: dict[str, Offsets], header: Optional[dict] = None,
-                  history_entry: Optional[dict] = None) -> None:
+                  history_entry: Optional[dict] = None, history: Optional[list] = None) -> None:
     """Write an ``element-offsets`` overlay (one line per element; zeros dropped).
 
-    *header* defaults to the existing file's descriptive fields; the history
-    is kept and *history_entry*, if given, is appended to it.
+    *header* defaults to the existing file's descriptive fields.  The
+    history is the existing file's (or *history*, if given), with
+    *history_entry* appended.
     """
     old = _read_overlay(path) if Path(path).exists() else {}
     if header is None:
         header = {k: v for k, v in old.items()
                   if k not in ("kind", "offsets", "history", *OFFSET_SECTIONS)}
-    history = list(old.get("history") or [])
+    history = list(history if history is not None else old.get("history") or [])
     if history_entry:
         history.append(history_entry)
     lines = [yaml.safe_dump({"kind": "element-offsets", **header}, sort_keys=False, width=88).rstrip()]
@@ -439,6 +440,100 @@ def tag_version(name_or_path: str | Path, date: Optional[str] = None) -> str:
     with open(version.path, "w") as f:
         yaml.safe_dump(doc, f, sort_keys=False, width=88)
     return fp
+
+
+VERSION_NAME_PATTERN = r"[A-Za-z0-9][A-Za-z0-9._-]*"
+OVERLAYS_DIR = GEOMETRY_DIR / "overlays"
+
+
+def uncommitted_files(paths: list[Path]) -> list[str]:
+    """The *paths* (inside the repo) that git reports as changed or untracked.
+
+    Empty when git is not available.
+    """
+    import subprocess
+    inside = [_rel(p) for p in paths if not Path(_rel(p)).is_absolute()]
+    if not inside:
+        return []
+    try:
+        out = subprocess.run(["git", "status", "--porcelain", "--", *inside], cwd=REPO_ROOT,
+                             capture_output=True, text=True, timeout=30, check=True).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [line[3:].strip().strip('"') for line in out.splitlines() if line.strip()]
+
+
+def snapshot_version(draft: str | Path, name: str, description: Optional[str] = None,
+                     date: Optional[str] = None, versions_dir: Path = VERSIONS_DIR,
+                     overlays_dir: Path = OVERLAYS_DIR, check_git: bool = True) -> tuple[Path, str]:
+    """Freeze a draft's current state as a new tagged version *name*.
+
+    The draft's offsets (all its overlays, summed) are copied into a new
+    overlay ``<overlays_dir>/<name>.yaml`` that nothing edits afterwards; a
+    new recipe ``<versions_dir>/<name>.yaml`` with the draft's inputs and
+    settings points at it and is tagged.  The draft itself is unchanged and
+    can keep being edited.  Returns the recipe path and the fingerprint.
+
+    Refuses if *name* is taken, if *draft* is not a draft, or (with
+    *check_git*) if an input other than the draft's overlays has
+    uncommitted changes, so a snapshot always matches files in git.
+    """
+    import re
+    version = load_version(draft)
+    if version.status != STATUS_DRAFT:
+        raise GeometryError(f"'{version.name}' is {version.status}; only a draft can be snapshot")
+    if not re.fullmatch(VERSION_NAME_PATTERN, name):
+        raise GeometryError(f"invalid version name {name!r}: use letters, digits, '.', '_' and '-'")
+    recipe = Path(versions_dir) / f"{name}.yaml"
+    overlay = Path(overlays_dir) / f"{name}.yaml"
+    for path in (recipe, overlay):
+        if path.exists():
+            raise GeometryError(f"{path} already exists; choose a new name")
+    if check_git:
+        others = [p for key, p in input_files(version).items() if p not in version.overlays]
+        dirty = uncommitted_files(others)
+        if dirty:
+            raise GeometryError("these inputs have uncommitted changes; commit them first so the "
+                                f"snapshot matches files in git: {', '.join(dirty)}")
+
+    today = date or datetime.date.today().isoformat()
+    history = []
+    for path in version.overlays:
+        history += _read_overlay(path).get("history") or []
+    header = {
+        "description": description or f"Snapshot of {version.name}",
+        "source": f"snapshot of {version.name} on {today} "
+                  f"(overlays: {', '.join(_rel(p) for p in version.overlays) or 'none'})",
+        "units": "mm",
+        "frame": "LitePath frame (litepath/geometry/frame.py); totals relative to each "
+                 "element's base position",
+    }
+    Path(overlays_dir).mkdir(parents=True, exist_ok=True)
+    # the frozen copy keeps the draft's save log, plus a line for the snapshot
+    write_offsets(overlay, load_offsets(version.overlays), header, history=history,
+                  history_entry={"date": today, "snapshot": name})
+
+    with open(version.path) as f:
+        doc = yaml.safe_load(f) or {}
+    doc = {
+        "name": name,
+        "status": STATUS_DRAFT,   # tag_version sets it to tagged
+        "description": description or f"Snapshot of {version.name} on {today}.",
+        "snapshot_of": version.name,
+        "inputs": doc.get("inputs", {}),
+        "settings": doc.get("settings", {}),
+        "overlays": [_rel(overlay)],
+    }
+    Path(versions_dir).mkdir(parents=True, exist_ok=True)
+    with open(recipe, "w") as f:
+        yaml.safe_dump(doc, f, sort_keys=False, width=88)
+    try:
+        fp = tag_version(recipe, date=today)
+    except GeometryError:
+        recipe.unlink(missing_ok=True)
+        overlay.unlink(missing_ok=True)
+        raise
+    return recipe, fp
 
 
 # ---------------------------------------------------------------------------

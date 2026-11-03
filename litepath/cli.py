@@ -90,7 +90,8 @@ def load_geometry_build(args: argparse.Namespace):
 
 def geometry_command(args: argparse.Namespace) -> None:
     from litepath.geometry.versions import (
-        GeometryError, file_hashes, fingerprint, list_versions, load_version, tag_version,
+        REPO_ROOT, GeometryError, file_hashes, fingerprint, list_versions, load_version,
+        snapshot_version, tag_version,
     )
     try:
         if args.geometry_action == "list":
@@ -116,6 +117,13 @@ def geometry_command(args: argparse.Namespace) -> None:
         elif args.geometry_action == "tag":
             fp = tag_version(args.name)
             print(f"Tagged {args.name}: fingerprint {fp}")
+        elif args.geometry_action == "snapshot":
+            recipe, fp = snapshot_version(args.draft, args.new_name, args.description)
+            v = load_version(recipe)
+            print(f"Snapshot {v.name}: tagged, fingerprint {fp[:12]}")
+            print(f"  recipe:  {recipe.relative_to(REPO_ROOT)}")
+            print(f"  offsets: {v.overlays[0].relative_to(REPO_ROOT)}")
+            print(f"  next: git add both files, commit and push; use --geometry {v.name}")
     except GeometryError as exc:
         print(f"Error: {exc}")
 
@@ -127,13 +135,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = p.add_subparsers(dest="command", required=True)
 
-    geo = sub.add_parser("geometry", help="List, show or tag geometry versions")
+    geo = sub.add_parser("geometry", help="List, show, tag or snapshot geometry versions")
     geo_sub = geo.add_subparsers(dest="geometry_action", required=True)
     geo_sub.add_parser("list", help="List geometry versions")
     geo_show = geo_sub.add_parser("show", help="Show a version's inputs, settings and hashes")
     geo_show.add_argument("name", help="Version name or YAML file")
     geo_tag = geo_sub.add_parser("tag", help="Freeze a draft version (records its hashes)")
     geo_tag.add_argument("name", help="Version name or YAML file")
+    geo_snap = geo_sub.add_parser(
+        "snapshot", help="Freeze a draft's current state as a new tagged version")
+    geo_snap.add_argument("draft", help="Draft version name or YAML file, e.g. annie-2026-data-tuning")
+    geo_snap.add_argument("--as", dest="new_name", required=True, metavar="NAME",
+                          help="Name of the new version, e.g. annie-2026-data-v1.0")
+    geo_snap.add_argument("--description", default=None, help="What this snapshot is")
 
     cherenkov = sub.add_parser("extract-manifest", help="Extract component manifest from STEP")
     cherenkov.add_argument("--step", required=True, type=Path, help="Path to STEP CAD file")

@@ -196,3 +196,52 @@ def test_build_applies_lappd_and_surfboard_offsets(tmp_path):
     assert base.fingerprint == fingerprint(_draft_with(tmp_path))
     with pytest.raises(ValueError, match="LAPPD offset for 2005"):
         load_build(_draft_with(tmp_path, {2005: (0.0, 0.0, 1.0)}), quiet=True)
+
+
+def test_every_tagged_version_still_matches_its_hashes():
+    """An in-place edit of a file a tagged version uses fails here, before it is pushed."""
+    tagged = [name for name in list_versions() if load_version(name).status == STATUS_TAGGED]
+    assert {"annie-2022-scan", "annie-2026-data"} <= set(tagged)
+    for name in tagged:
+        v = load_version(name)
+        hashes = file_hashes(v)
+        verify_tagged(v, hashes, fingerprint(v, hashes))
+
+
+def test_snapshot_freezes_the_draft(tmp_path):
+    from litepath.geometry.versions import read_offsets, snapshot_version, write_offsets
+    versions, overlays = tmp_path / "versions", tmp_path / "overlays"
+    overlays.mkdir()
+    work = overlays / "work.yaml"
+    write_offsets(work, {"pmts": {401: (1.0, 0.0, 0.0)}, "lappds": {2001: (0.0, 0.0, 50.0)}},
+                  header={"description": "working file"}, history_entry={"date": "2026-11-03", "pmts": [401]})
+    doc = yaml.safe_load(Path("geometry/versions/annie-2026-data-tuning.yaml").read_text())
+    doc["overlays"] = [str(work)]
+    draft = tmp_path / "draft.yaml"
+    draft.write_text(yaml.safe_dump(doc))
+
+    recipe, fp = snapshot_version(draft, "annie-2026-data-v9.9", "test snapshot", date="2026-11-03",
+                                  versions_dir=versions, overlays_dir=overlays, check_git=False)
+    snap = load_version(recipe)
+    assert snap.status == STATUS_TAGGED and snap.tagged["fingerprint"] == fp
+    frozen = overlays / "annie-2026-data-v9.9.yaml"
+    assert snap.overlays == [frozen]
+    assert read_offsets(frozen) == read_offsets(work)
+    history = yaml.safe_load(frozen.read_text())["history"]
+    assert history[0]["pmts"] == [401] and history[-1]["snapshot"] == "annie-2026-data-v9.9"
+
+    # later saves to the working file do not touch the snapshot
+    write_offsets(work, {"pmts": {401: (5.0, 0.0, 0.0)}})
+    draft_before = fingerprint(load_version(draft))
+    write_offsets(work, {"pmts": {401: (6.0, 0.0, 0.0)}})
+    hashes = file_hashes(snap)
+    verify_tagged(snap, hashes, fingerprint(snap, hashes))
+    assert fingerprint(load_version(draft)) != draft_before
+
+    with pytest.raises(GeometryError, match="already exists"):
+        snapshot_version(draft, "annie-2026-data-v9.9", versions_dir=versions, overlays_dir=overlays,
+                         check_git=False)
+    with pytest.raises(GeometryError, match="only a draft"):
+        snapshot_version(recipe, "x-v1", versions_dir=versions, overlays_dir=overlays, check_git=False)
+    with pytest.raises(GeometryError, match="invalid version name"):
+        snapshot_version(draft, "bad name", versions_dir=versions, overlays_dir=overlays, check_git=False)

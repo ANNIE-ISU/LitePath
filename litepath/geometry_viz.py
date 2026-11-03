@@ -19,7 +19,10 @@ import numpy as np
 
 from litepath import viz_server
 from litepath.detectors import LAPPD_ID_OFFSET_ANNIE
-from litepath.geometry.versions import OFFSET_SECTIONS, read_offsets, write_offsets
+from litepath.geometry.versions import (
+    REPO_ROOT, OFFSET_SECTIONS, GeometryError, load_version, read_offsets, snapshot_version,
+    write_offsets,
+)
 from litepath.viz_server import VizHandler
 
 # Routes of the viz server that belong to the muon / photon-trace side.
@@ -75,10 +78,11 @@ class GeometryVizHandler(VizHandler):
         path = self.path.split("?")[0]
         if path in _OPERATIONAL_ROUTES or path in _DIRECT_SAVE_ROUTES:
             self._send_json({"error": "not available in the geometry workbench"}, 404)
-        elif path == "/api/offsets/save":
+        elif path in ("/api/offsets/save", "/api/snapshot"):
             import json
             length = int(self.headers.get("Content-Length", 0))
-            self._save_offsets(json.loads(self.rfile.read(length)))
+            data = json.loads(self.rfile.read(length))
+            (self._save_offsets if path == "/api/offsets/save" else self._snapshot)(data)
         else:
             super().do_POST()
 
@@ -147,6 +151,22 @@ class GeometryVizHandler(VizHandler):
         n = sum(len(e) for e in changes.values())
         print(f"  Saved {n} adjustment(s) to {overlay}")
         self._send_json({"ok": True, "saved": n, "overlay": str(overlay)})
+
+    def _snapshot(self, data: dict) -> None:
+        """Freeze the draft's saved state as a new tagged version (geometry snapshot)."""
+        if VizHandler._overlay_path is None:
+            self._send_json({"error": "only a draft version can be snapshot"}, 400)
+            return
+        name = str(data.get("name", "")).strip()
+        try:
+            recipe, fp = snapshot_version(VizHandler._build.version.path, name,
+                                          str(data.get("description", "")).strip() or None)
+        except GeometryError as exc:
+            self._send_json({"error": str(exc)}, 400)
+            return
+        files = [str(p.relative_to(REPO_ROOT)) for p in (recipe, load_version(recipe).overlays[0])]
+        print(f"  Snapshot {name}: tagged, fingerprint {fp[:12]} ({', '.join(files)})")
+        self._send_json({"ok": True, "name": name, "fingerprint": fp, "files": files})
 
     def _send_html(self):
         self.send_response(200)
@@ -270,6 +290,15 @@ HTML_PAGE = r"""<!DOCTYPE html>
 <div id="controls">
   <h3>Geometry Workbench</h3>
   <div id="geometryName" style="font-size:12px;color:#555;margin-bottom:6px;"></div>
+  <details id="snapshotBox" style="font-size:12px;margin-bottom:6px;">
+    <summary style="cursor:pointer;font-weight:600;">Snapshot (freeze &amp; tag)</summary>
+    <div style="color:#666;margin:4px 0;">Copies the saved offsets into a new, tagged version.
+      Save or discard your changes first.</div>
+    <label>Name <input type="text" id="snapName" placeholder="annie-2026-data-v1.0" style="width:100%;"></label>
+    <label>Description <input type="text" id="snapDesc" placeholder="what this snapshot is" style="width:100%;"></label>
+    <button id="snapBtn" disabled>Create snapshot</button>
+    <div id="snapResult" style="margin-top:4px;line-height:1.4;"></div>
+  </details>
   <div style="font-size:12px;font-weight:600;margin-top:4px;">Light source</div>
   <label>Position
     <div class="row">
@@ -665,6 +694,9 @@ function updateSessionBar() {
         ? (offsetsEditable ? `No unsaved changes · saving to ${overlayName}` : 'View only: changes cannot be saved')
         : `${n} unsaved change${n > 1 ? 's' : ''}`;
     document.getElementById('saveAll').disabled = n === 0 || !offsetsEditable;
+    document.getElementById('snapBtn').disabled = n > 0 || !offsetsEditable;
+    document.getElementById('snapBtn').title = !offsetsEditable ? 'Only a draft version can be snapshot'
+        : n > 0 ? 'Save to draft or Discard all first' : 'Freeze the saved offsets as a new tagged version';
     document.getElementById('discardAll').disabled = n === 0;
     const parts = [];
     for (const s of SECTIONS) for (const k of Object.keys(pending[s])) parts.push(`${SECTION_NAMES[s]} ${k}`);
@@ -688,6 +720,21 @@ document.getElementById('discardAll').addEventListener('click', () => {
     for (const s of SECTIONS) for (const k of Object.keys(pendingRevert[s])) pendingRevert[s][k]();
     for (const s of SECTIONS) { pending[s] = {}; pendingRevert[s] = {}; }
     updateSessionBar();
+});
+document.getElementById('snapBtn').addEventListener('click', async () => {
+    const name = document.getElementById('snapName').value.trim();
+    const out = document.getElementById('snapResult');
+    if (!name) { out.textContent = 'Give the snapshot a name, e.g. annie-2026-data-v1.0'; return; }
+    out.textContent = 'Creating…';
+    const resp = await fetch('/api/snapshot', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name, description: document.getElementById('snapDesc').value}),
+    });
+    const r = await resp.json();
+    if (!resp.ok) { out.textContent = 'Not created: ' + r.error; return; }
+    out.innerHTML = `Tagged <b>${r.name}</b> (fingerprint ${r.fingerprint.slice(0, 12)}).<br>`
+        + `Commit and push: <code>git add ${r.files.map(f => `"${f}"`).join(' ')}</code><br>`
+        + `Use it with <code>--geometry ${r.name}</code>.`;
 });
 window.addEventListener('beforeunload', (e) => {
     if (nPending() > 0) { e.preventDefault(); e.returnValue = ''; }
