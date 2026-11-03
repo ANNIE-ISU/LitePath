@@ -61,6 +61,10 @@ changed before starting.
 ## Key Facts for Code Changes
 
 - Python 3.11+; Taichi ≥ 1.7; GPU kernels use `@ti.kernel` / `@ti.func`
+- The trace kernel reads the scene from three packed buffers
+  (`litepath/engine/scene.py`: `scene_f`, `scene_i`, `layout`) so it stays
+  under GPU per-kernel buffer limits (Metal: 31). Never add a kernel
+  argument for new data: add a section to `F_SECTIONS`/`I_SECTIONS`
 - Hit array column indices are in `hits.py` (HI, HT, HX ... H_SOURCE). `tracer.py`
   is now only a compatibility module; code lives in `geometry/`, `engine/`,
   `sources/` and `simulate.py` (see `docs/README.md` code map)

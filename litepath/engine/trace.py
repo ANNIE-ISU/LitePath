@@ -3,6 +3,7 @@
 import numpy as np
 
 from litepath.engine.kernel import trace_kernel
+from litepath.engine.scene import pack_scene
 from litepath.geometry.build import Geometry
 from litepath.hits import (
     DET_SYS_NONE, HI, HT, HX, HZ, HNX, HNZ, HDI, HDS, HMAT, N_HIT_COLS,
@@ -21,45 +22,14 @@ def trace_rays(
     hits[:, HDI] = -1.0
     hits[:, HDS] = DET_SYS_NONE * 1.0
 
+    scene = pack_scene(geometry)
     trace_kernel(
         origins,
         directions,
-        geometry.mesh_vertices,
-        geometry.mesh_triangles.astype(np.int32),
-        geometry.mesh_material_ids if geometry.mesh_material_ids is not None
-        else np.zeros(0, dtype=np.int32),
-        geometry.bvh_node_min,
-        geometry.bvh_node_max,
-        geometry.bvh_node_left,
-        geometry.bvh_node_right,
-        geometry.bvh_tri_start,
-        geometry.bvh_tri_end,
-        geometry.bvh_tri_ids,
-        geometry.bvh_n_nodes,
-        geometry.pmt_centers,
-        geometry.pmt_radii,
-        geometry.pmt_directions,
-        geometry.pmt_body_tris,
-        geometry.pmt_body_offsets,
-        geometry.pmt_rotmats,
-        geometry.pmt_mesh_types,
-        geometry.pmt_hw_types,
-        geometry.pmt_hw_tris,
-        geometry.pmt_hw_mat_ids,
-        geometry.pmt_instance_pos,
-        geometry.pmt_bounding_radii,
-        geometry.pmt_bvh_bounds,
-        geometry.pmt_bvh_nodes,
-        geometry.pmt_bvh_tri_ids,
-        geometry.pmt_bvh_roots,
-        geometry.lappd_data,
-        geometry.lappd_strip_axes,
-        geometry.tank_radius,
-        geometry.tank_z_min,
-        geometry.tank_z_max,
-        geometry.lappd_housing_data,
-        geometry.annie_lappd_data,
-        geometry.surfboard_data,
+        scene.scene_f,
+        scene.scene_i,
+        scene.layout,
+        *scene.tank,
         hits,
     )
     return hits

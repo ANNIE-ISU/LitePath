@@ -8,6 +8,41 @@ from litepath.hits import (
     HI, HT, HX, HY, HZ, HNX, HNY, HNZ, HCID, HDI, HDS, HLU, HLV, HMAT,
 )
 
+from litepath.engine.scene import N_SLOTS, SLOT
+
+# Section slots in the packed scene (compile-time constants in the kernel)
+SLOT_MESH_VERTICES = SLOT["mesh_vertices"]
+SLOT_BVH_NODE_MIN = SLOT["bvh_node_min"]
+SLOT_BVH_NODE_MAX = SLOT["bvh_node_max"]
+SLOT_PMT_CENTERS = SLOT["pmt_centers"]
+SLOT_PMT_RADII = SLOT["pmt_radii"]
+SLOT_PMT_DIRECTIONS = SLOT["pmt_directions"]
+SLOT_PMT_BODY_TRIS = SLOT["pmt_body_tris"]
+SLOT_PMT_ROTMATS = SLOT["pmt_rotmats"]
+SLOT_PMT_HW_TRIS = SLOT["pmt_hw_tris"]
+SLOT_PMT_INSTANCE_POS = SLOT["pmt_instance_pos"]
+SLOT_PMT_BOUNDING_RADII = SLOT["pmt_bounding_radii"]
+SLOT_PMT_BVH_BOUNDS = SLOT["pmt_bvh_bounds"]
+SLOT_LAPPD_DATA = SLOT["lappd_data"]
+SLOT_LAPPD_STRIP_AXES = SLOT["lappd_strip_axes"]
+SLOT_LAPPD_HOUSING_DATA = SLOT["lappd_housing_data"]
+SLOT_ANNIE_LAPPD_DATA = SLOT["annie_lappd_data"]
+SLOT_SURFBOARD_DATA = SLOT["surfboard_data"]
+SLOT_MESH_TRIANGLES = SLOT["mesh_triangles"]
+SLOT_MESH_MATERIAL_IDS = SLOT["mesh_material_ids"]
+SLOT_BVH_NODE_LEFT = SLOT["bvh_node_left"]
+SLOT_BVH_NODE_RIGHT = SLOT["bvh_node_right"]
+SLOT_BVH_TRI_START = SLOT["bvh_tri_start"]
+SLOT_BVH_TRI_END = SLOT["bvh_tri_end"]
+SLOT_BVH_TRI_IDS = SLOT["bvh_tri_ids"]
+SLOT_PMT_BODY_OFFSETS = SLOT["pmt_body_offsets"]
+SLOT_PMT_MESH_TYPES = SLOT["pmt_mesh_types"]
+SLOT_PMT_HW_TYPES = SLOT["pmt_hw_types"]
+SLOT_PMT_HW_MAT_IDS = SLOT["pmt_hw_mat_ids"]
+SLOT_PMT_BVH_NODES = SLOT["pmt_bvh_nodes"]
+SLOT_PMT_BVH_TRI_IDS = SLOT["pmt_bvh_tri_ids"]
+SLOT_PMT_BVH_ROOTS = SLOT["pmt_bvh_roots"]
+
 
 # ---- Taichi helper functions (single-return pattern for Taichi compat) ----
 
@@ -478,8 +513,8 @@ def _lappd_local_coords(hx, hy, hz, lcx, lcy, lcz, sx, sy, sz, nx, ny, nz):
 
 @ti.func
 def _packed_bvh_nearest(root, ox, oy, oz, dx, dy, dz, t_limit,
-                        bvh_bounds: ti.template(), bvh_nodes: ti.template(),
-                        bvh_tri_ids: ti.template(), tris: ti.template()):
+                        scene_f: ti.template(), scene_i: ti.template(),
+                        o_bounds, o_nodes, o_tri_ids, o_tris):
     """Nearest triangle hit in one packed BVH (see bvh.build_packed_bvh).
 
     The ray is in the BVH's local frame.  Only hits with 1e-6 < t < t_limit
@@ -501,14 +536,14 @@ def _packed_bvh_nearest(root, ox, oy, oz, dx, dy, dz, t_limit,
         node = stack[sp]
         sp -= 1
 
-        if bvh_nodes[node, 0] == -1:  # leaf
-            for k in range(bvh_nodes[node, 2], bvh_nodes[node, 3]):
-                tri = bvh_tri_ids[k]
+        if scene_i[o_nodes + (node) * 4 + 0] == -1:  # leaf
+            for k in range(scene_i[o_nodes + (node) * 4 + 2], scene_i[o_nodes + (node) * 4 + 3]):
+                tri = scene_i[o_tri_ids + k]
                 h, th, _u, _v, nx, ny, nz = _ray_triangle_intersect(
                     ox, oy, oz, dx, dy, dz,
-                    tris[tri, 0], tris[tri, 1], tris[tri, 2],
-                    tris[tri, 3], tris[tri, 4], tris[tri, 5],
-                    tris[tri, 6], tris[tri, 7], tris[tri, 8],
+                    scene_f[o_tris + (tri) * 9 + 0], scene_f[o_tris + (tri) * 9 + 1], scene_f[o_tris + (tri) * 9 + 2],
+                    scene_f[o_tris + (tri) * 9 + 3], scene_f[o_tris + (tri) * 9 + 4], scene_f[o_tris + (tri) * 9 + 5],
+                    scene_f[o_tris + (tri) * 9 + 6], scene_f[o_tris + (tri) * 9 + 7], scene_f[o_tris + (tri) * 9 + 8],
                 )
                 if h and th > 1e-6 and (th < best or (found and th == best and tri < best_tri)):
                     found = 1
@@ -518,15 +553,15 @@ def _packed_bvh_nearest(root, ox, oy, oz, dx, dy, dz, t_limit,
                     bny = ny
                     bnz = nz
         else:  # internal node — test children, push near-first
-            ln = bvh_nodes[node, 0]
+            ln = scene_i[o_nodes + (node) * 4 + 0]
             hl, tl = _ray_bbox_intersect(ox, oy, oz, dx, dy, dz,
-                bvh_bounds[ln, 0], bvh_bounds[ln, 1], bvh_bounds[ln, 2],
-                bvh_bounds[ln, 3], bvh_bounds[ln, 4], bvh_bounds[ln, 5])
+                scene_f[o_bounds + (ln) * 6 + 0], scene_f[o_bounds + (ln) * 6 + 1], scene_f[o_bounds + (ln) * 6 + 2],
+                scene_f[o_bounds + (ln) * 6 + 3], scene_f[o_bounds + (ln) * 6 + 4], scene_f[o_bounds + (ln) * 6 + 5])
 
-            rn = bvh_nodes[node, 1]
+            rn = scene_i[o_nodes + (node) * 4 + 1]
             hr, tr = _ray_bbox_intersect(ox, oy, oz, dx, dy, dz,
-                bvh_bounds[rn, 0], bvh_bounds[rn, 1], bvh_bounds[rn, 2],
-                bvh_bounds[rn, 3], bvh_bounds[rn, 4], bvh_bounds[rn, 5])
+                scene_f[o_bounds + (rn) * 6 + 0], scene_f[o_bounds + (rn) * 6 + 1], scene_f[o_bounds + (rn) * 6 + 2],
+                scene_f[o_bounds + (rn) * 6 + 3], scene_f[o_bounds + (rn) * 6 + 4], scene_f[o_bounds + (rn) * 6 + 5])
 
             if hl and hr:
                 if tl < tr:
@@ -577,51 +612,63 @@ def _packed_bvh_nearest(root, ox, oy, oz, dx, dy, dz, t_limit,
 def trace_kernel(
     origins: ti.types.ndarray(ndim=2),
     directions: ti.types.ndarray(ndim=2),
-    mesh_vertices: ti.types.ndarray(ndim=2),
-    mesh_triangles: ti.types.ndarray(ndim=2),
-    mesh_material_ids: ti.types.ndarray(ndim=1),
-    bvh_node_min: ti.types.ndarray(ndim=2),
-    bvh_node_max: ti.types.ndarray(ndim=2),
-    bvh_node_left: ti.types.ndarray(ndim=1),
-    bvh_node_right: ti.types.ndarray(ndim=1),
-    bvh_tri_start: ti.types.ndarray(ndim=1),
-    bvh_tri_end: ti.types.ndarray(ndim=1),
-    bvh_tri_ids: ti.types.ndarray(ndim=1),
-    bvh_n_nodes: ti.i32,
-    pmt_centers: ti.types.ndarray(ndim=2),
-    pmt_radii: ti.types.ndarray(ndim=1),
-    pmt_dirs: ti.types.ndarray(ndim=2),
-    pmt_body_tris: ti.types.ndarray(ndim=2),
-    pmt_body_offsets: ti.types.ndarray(ndim=1),
-    pmt_rotmats: ti.types.ndarray(ndim=2),
-    pmt_mesh_types: ti.types.ndarray(ndim=1),
-    pmt_hw_types: ti.types.ndarray(ndim=1),
-    pmt_hw_tris: ti.types.ndarray(ndim=2),
-    pmt_hw_mat_ids: ti.types.ndarray(ndim=1),
-    pmt_instance_pos: ti.types.ndarray(ndim=2),
-    pmt_bounding_radii: ti.types.ndarray(ndim=1),
-    pmt_bvh_bounds: ti.types.ndarray(ndim=2),
-    pmt_bvh_nodes: ti.types.ndarray(ndim=2),
-    pmt_bvh_tri_ids: ti.types.ndarray(ndim=1),
-    pmt_bvh_roots: ti.types.ndarray(ndim=1),
-    lappd_data: ti.types.ndarray(ndim=2),
-    lappd_strip: ti.types.ndarray(ndim=2),
+    scene_f: ti.types.ndarray(ndim=1),
+    scene_i: ti.types.ndarray(ndim=1),
+    layout: ti.types.ndarray(ndim=1),
     tank_radius: ti.f32,
     tank_z_min: ti.f32,
     tank_z_max: ti.f32,
-    housing_data: ti.types.ndarray(ndim=2),
-    annie_lappd_data: ti.types.ndarray(ndim=2),
-    surfboard_data: ti.types.ndarray(ndim=2),
     hits: ti.types.ndarray(ndim=2),
 ):
+    # Section starts (o_*) and row counts (n_*) in the packed scene
+    o_mesh_vertices = layout[SLOT_MESH_VERTICES]
+    o_mesh_triangles = layout[SLOT_MESH_TRIANGLES]
+    o_mesh_material_ids = layout[SLOT_MESH_MATERIAL_IDS]
+    o_bvh_node_min = layout[SLOT_BVH_NODE_MIN]
+    o_bvh_node_max = layout[SLOT_BVH_NODE_MAX]
+    o_bvh_node_left = layout[SLOT_BVH_NODE_LEFT]
+    o_bvh_node_right = layout[SLOT_BVH_NODE_RIGHT]
+    o_bvh_tri_start = layout[SLOT_BVH_TRI_START]
+    o_bvh_tri_end = layout[SLOT_BVH_TRI_END]
+    o_bvh_tri_ids = layout[SLOT_BVH_TRI_IDS]
+    o_pmt_centers = layout[SLOT_PMT_CENTERS]
+    o_pmt_radii = layout[SLOT_PMT_RADII]
+    o_pmt_dirs = layout[SLOT_PMT_DIRECTIONS]
+    o_pmt_body_tris = layout[SLOT_PMT_BODY_TRIS]
+    o_pmt_body_offsets = layout[SLOT_PMT_BODY_OFFSETS]
+    o_pmt_rotmats = layout[SLOT_PMT_ROTMATS]
+    o_pmt_mesh_types = layout[SLOT_PMT_MESH_TYPES]
+    o_pmt_hw_types = layout[SLOT_PMT_HW_TYPES]
+    o_pmt_hw_tris = layout[SLOT_PMT_HW_TRIS]
+    o_pmt_hw_mat_ids = layout[SLOT_PMT_HW_MAT_IDS]
+    o_pmt_instance_pos = layout[SLOT_PMT_INSTANCE_POS]
+    o_pmt_bounding_radii = layout[SLOT_PMT_BOUNDING_RADII]
+    o_pmt_bvh_bounds = layout[SLOT_PMT_BVH_BOUNDS]
+    o_pmt_bvh_nodes = layout[SLOT_PMT_BVH_NODES]
+    o_pmt_bvh_tri_ids = layout[SLOT_PMT_BVH_TRI_IDS]
+    o_pmt_bvh_roots = layout[SLOT_PMT_BVH_ROOTS]
+    o_lappd_data = layout[SLOT_LAPPD_DATA]
+    o_lappd_strip = layout[SLOT_LAPPD_STRIP_AXES]
+    o_housing_data = layout[SLOT_LAPPD_HOUSING_DATA]
+    o_annie_lappd_data = layout[SLOT_ANNIE_LAPPD_DATA]
+    o_surfboard_data = layout[SLOT_SURFBOARD_DATA]
+    n_mesh_triangles = layout[N_SLOTS + SLOT_MESH_TRIANGLES]
+    n_mesh_material_ids = layout[N_SLOTS + SLOT_MESH_MATERIAL_IDS]
+    n_pmt_centers = layout[N_SLOTS + SLOT_PMT_CENTERS]
+    n_pmt_body_tris = layout[N_SLOTS + SLOT_PMT_BODY_TRIS]
+    n_pmt_hw_tris = layout[N_SLOTS + SLOT_PMT_HW_TRIS]
+    n_lappd_data = layout[N_SLOTS + SLOT_LAPPD_DATA]
+    n_housing_data = layout[N_SLOTS + SLOT_LAPPD_HOUSING_DATA]
+    n_surfboard_data = layout[N_SLOTS + SLOT_SURFBOARD_DATA]
+    bvh_n_nodes = layout[2 * N_SLOTS]
     n_rays = origins.shape[0]
-    n_tris = mesh_triangles.shape[0]
-    n_pmts = pmt_centers.shape[0]
-    n_lappds = lappd_data.shape[0]
-    n_housings = housing_data.shape[0]
-    n_surfboards = surfboard_data.shape[0]
-    n_body_tris = pmt_body_tris.shape[0]
-    n_hw_tris = pmt_hw_tris.shape[0]
+    n_tris = n_mesh_triangles
+    n_pmts = n_pmt_centers
+    n_lappds = n_lappd_data
+    n_housings = n_housing_data
+    n_surfboards = n_surfboard_data
+    n_body_tris = n_pmt_body_tris
+    n_hw_tris = n_pmt_hw_tris
 
     for i in range(n_rays):
         ox = origins[i, 0]
@@ -663,22 +710,22 @@ def trace_kernel(
                 if node < 0:
                     continue
 
-                if bvh_node_left[node] == -1:  # leaf
-                    for idx in range(bvh_tri_start[node], bvh_tri_end[node]):
-                        t = bvh_tri_ids[idx]
-                        i0 = mesh_triangles[t, 0]
-                        i1 = mesh_triangles[t, 1]
-                        i2 = mesh_triangles[t, 2]
+                if scene_i[o_bvh_node_left + node] == -1:  # leaf
+                    for idx in range(scene_i[o_bvh_tri_start + node], scene_i[o_bvh_tri_end + node]):
+                        t = scene_i[o_bvh_tri_ids + idx]
+                        i0 = scene_i[o_mesh_triangles + (t) * 3 + 0]
+                        i1 = scene_i[o_mesh_triangles + (t) * 3 + 1]
+                        i2 = scene_i[o_mesh_triangles + (t) * 3 + 2]
 
-                        v0x = mesh_vertices[i0, 0]
-                        v0y = mesh_vertices[i0, 1]
-                        v0z = mesh_vertices[i0, 2]
-                        v1x = mesh_vertices[i1, 0]
-                        v1y = mesh_vertices[i1, 1]
-                        v1z = mesh_vertices[i1, 2]
-                        v2x = mesh_vertices[i2, 0]
-                        v2y = mesh_vertices[i2, 1]
-                        v2z = mesh_vertices[i2, 2]
+                        v0x = scene_f[o_mesh_vertices + (i0) * 3 + 0]
+                        v0y = scene_f[o_mesh_vertices + (i0) * 3 + 1]
+                        v0z = scene_f[o_mesh_vertices + (i0) * 3 + 2]
+                        v1x = scene_f[o_mesh_vertices + (i1) * 3 + 0]
+                        v1y = scene_f[o_mesh_vertices + (i1) * 3 + 1]
+                        v1z = scene_f[o_mesh_vertices + (i1) * 3 + 2]
+                        v2x = scene_f[o_mesh_vertices + (i2) * 3 + 0]
+                        v2y = scene_f[o_mesh_vertices + (i2) * 3 + 1]
+                        v2z = scene_f[o_mesh_vertices + (i2) * 3 + 2]
 
                         h, th, _u, _v, nx, ny, nz = _ray_triangle_intersect(
                             ox, oy, oz, dx, dy, dz,
@@ -698,17 +745,17 @@ def trace_kernel(
                             best_nz = nz
                             best_det_idx = -1
                             best_det_sys = DET_SYS_NONE
-                            best_mat = mesh_material_ids[t] if mesh_material_ids.shape[0] > 0 else 0
+                            best_mat = scene_i[o_mesh_material_ids + t] if n_mesh_material_ids > 0 else 0
                 else:  # internal node — test children, push near-first
-                    ln = bvh_node_left[node]
+                    ln = scene_i[o_bvh_node_left + node]
                     hl, tl = _ray_bbox_intersect(ox, oy, oz, dx, dy, dz,
-                        bvh_node_min[ln, 0], bvh_node_min[ln, 1], bvh_node_min[ln, 2],
-                        bvh_node_max[ln, 0], bvh_node_max[ln, 1], bvh_node_max[ln, 2])
+                        scene_f[o_bvh_node_min + (ln) * 3 + 0], scene_f[o_bvh_node_min + (ln) * 3 + 1], scene_f[o_bvh_node_min + (ln) * 3 + 2],
+                        scene_f[o_bvh_node_max + (ln) * 3 + 0], scene_f[o_bvh_node_max + (ln) * 3 + 1], scene_f[o_bvh_node_max + (ln) * 3 + 2])
 
-                    rn = bvh_node_right[node]
+                    rn = scene_i[o_bvh_node_right + node]
                     hr, tr = _ray_bbox_intersect(ox, oy, oz, dx, dy, dz,
-                        bvh_node_min[rn, 0], bvh_node_min[rn, 1], bvh_node_min[rn, 2],
-                        bvh_node_max[rn, 0], bvh_node_max[rn, 1], bvh_node_max[rn, 2])
+                        scene_f[o_bvh_node_min + (rn) * 3 + 0], scene_f[o_bvh_node_min + (rn) * 3 + 1], scene_f[o_bvh_node_min + (rn) * 3 + 2],
+                        scene_f[o_bvh_node_max + (rn) * 3 + 0], scene_f[o_bvh_node_max + (rn) * 3 + 1], scene_f[o_bvh_node_max + (rn) * 3 + 2])
 
                     if hl and hr:
                         if tl < tr:
@@ -736,19 +783,19 @@ def trace_kernel(
             # If this PMT has loaded mesh data, skip the analytic sphere entirely.
             # The mesh refinement loop below will handle hit detection via a
             # bounding-sphere pre-filter + local-frame triangle test.
-            pmt_mt = ti.cast(pmt_mesh_types[p], ti.i32)
+            pmt_mt = ti.cast(scene_i[o_pmt_mesh_types + p], ti.i32)
             has_mesh = 0
             if n_body_tris > 0 and pmt_mt >= 0:
-                _s = pmt_body_offsets[pmt_mt]
-                _e = pmt_body_offsets[pmt_mt + 1]
-                if _e > _s and pmt_bounding_radii[p] > 0.0:
+                _s = scene_i[o_pmt_body_offsets + pmt_mt]
+                _e = scene_i[o_pmt_body_offsets + pmt_mt + 1]
+                if _e > _s and scene_f[o_pmt_bounding_radii + p] > 0.0:
                     has_mesh = 1
 
             if not has_mesh:
-                pcx = pmt_centers[p, 0]
-                pcy = pmt_centers[p, 1]
-                pcz = pmt_centers[p, 2]
-                pr = pmt_radii[p]
+                pcx = scene_f[o_pmt_centers + (p) * 3 + 0]
+                pcy = scene_f[o_pmt_centers + (p) * 3 + 1]
+                pcz = scene_f[o_pmt_centers + (p) * 3 + 2]
+                pr = scene_f[o_pmt_radii + p]
 
                 hit, t_hit, nx, ny, nz = _ray_sphere_intersect(
                     ox, oy, oz, dx, dy, dz,
@@ -760,9 +807,9 @@ def trace_kernel(
                     hpx = ox + dx * t_hit - pcx
                     hpy = oy + dy * t_hit - pcy
                     hpz = oz + dz * t_hit - pcz
-                    pdx = pmt_dirs[p, 0]
-                    pdy = pmt_dirs[p, 1]
-                    pdz = pmt_dirs[p, 2]
+                    pdx = scene_f[o_pmt_dirs + (p) * 3 + 0]
+                    pdy = scene_f[o_pmt_dirs + (p) * 3 + 1]
+                    pdz = scene_f[o_pmt_dirs + (p) * 3 + 2]
                     # Hemisphere check: dot(normal, direction) > 0 for front face
                     dot_fwd = hpx * pdx + hpy * pdy + hpz * pdz
                     if dot_fwd > 0.0:
@@ -784,17 +831,17 @@ def trace_kernel(
         # ---- PMT mesh refinement (override sphere hits with accurate mesh) ----
         if n_body_tris > 0 and n_pmts > 0:
             for p in range(n_pmts):
-                mt = ti.cast(pmt_mesh_types[p], ti.i32)
+                mt = ti.cast(scene_i[o_pmt_mesh_types + p], ti.i32)
                 if mt < 0:
                     continue
-                body_root = pmt_bvh_roots[mt]  # -1: no photocathode triangles
+                body_root = scene_i[o_pmt_bvh_roots + mt]  # -1: no photocathode triangles
                 if body_root < 0:
                     continue
 
-                ipx = pmt_instance_pos[p, 0]
-                ipy = pmt_instance_pos[p, 1]
-                ipz = pmt_instance_pos[p, 2]
-                br = pmt_bounding_radii[p]
+                ipx = scene_f[o_pmt_instance_pos + (p) * 3 + 0]
+                ipy = scene_f[o_pmt_instance_pos + (p) * 3 + 1]
+                ipz = scene_f[o_pmt_instance_pos + (p) * 3 + 2]
+                br = scene_f[o_pmt_bounding_radii + p]
                 if br <= 0.0:
                     continue
 
@@ -815,15 +862,15 @@ def trace_kernel(
                     continue
 
                 # Load rotation matrix (flattened R^T, row-major)
-                rm0 = pmt_rotmats[p, 0]
-                rm1 = pmt_rotmats[p, 1]
-                rm2 = pmt_rotmats[p, 2]
-                rm3 = pmt_rotmats[p, 3]
-                rm4 = pmt_rotmats[p, 4]
-                rm5 = pmt_rotmats[p, 5]
-                rm6 = pmt_rotmats[p, 6]
-                rm7 = pmt_rotmats[p, 7]
-                rm8 = pmt_rotmats[p, 8]
+                rm0 = scene_f[o_pmt_rotmats + (p) * 9 + 0]
+                rm1 = scene_f[o_pmt_rotmats + (p) * 9 + 1]
+                rm2 = scene_f[o_pmt_rotmats + (p) * 9 + 2]
+                rm3 = scene_f[o_pmt_rotmats + (p) * 9 + 3]
+                rm4 = scene_f[o_pmt_rotmats + (p) * 9 + 4]
+                rm5 = scene_f[o_pmt_rotmats + (p) * 9 + 5]
+                rm6 = scene_f[o_pmt_rotmats + (p) * 9 + 6]
+                rm7 = scene_f[o_pmt_rotmats + (p) * 9 + 7]
+                rm8 = scene_f[o_pmt_rotmats + (p) * 9 + 8]
 
                 # Transform ray to local frame: v_local = R^T · v_global
                 lox = ocx * rm0 + ocy * rm1 + ocz * rm2
@@ -837,7 +884,7 @@ def trace_kernel(
                 # Nearest photocathode triangle (the BVH holds only those)
                 _hit, _t, _tri, _nx, _ny, _nz = _packed_bvh_nearest(
                     body_root, lox, loy, loz, ldx, ldy, ldz, best_t,
-                    pmt_bvh_bounds, pmt_bvh_nodes, pmt_bvh_tri_ids, pmt_body_tris,
+                    scene_f, scene_i, o_pmt_bvh_bounds, o_pmt_bvh_nodes, o_pmt_bvh_tri_ids, o_pmt_body_tris,
                 )
                 if _hit:
                     # Hit position in local frame
@@ -868,9 +915,9 @@ def trace_kernel(
                     best_det_idx = p
                     best_det_sys = DET_SYS_PMT
                     best_mat = 2
-                    pdx = pmt_dirs[p, 0]
-                    pdy = pmt_dirs[p, 1]
-                    pdz = pmt_dirs[p, 2]
+                    pdx = scene_f[o_pmt_dirs + (p) * 3 + 0]
+                    pdy = scene_f[o_pmt_dirs + (p) * 3 + 1]
+                    pdz = scene_f[o_pmt_dirs + (p) * 3 + 2]
                     theta, phi = _pmt_local_coords(wnx, wny, wnz, pdx, pdy, pdz)
                     best_lu = theta
                     best_lv = phi
@@ -878,17 +925,17 @@ def trace_kernel(
         # ---- PMT hardware (holder) mesh refinement ----
         if n_hw_tris > 0 and n_pmts > 0:
             for p in range(n_pmts):
-                hwmt = ti.cast(pmt_hw_types[p], ti.i32)
+                hwmt = ti.cast(scene_i[o_pmt_hw_types + p], ti.i32)
                 if hwmt < 4:
                     continue
-                hw_root = pmt_bvh_roots[hwmt]  # slots 4-5 hold HW types 4-5
+                hw_root = scene_i[o_pmt_bvh_roots + hwmt]  # slots 4-5 hold HW types 4-5
                 if hw_root < 0:
                     continue
 
-                ipx = pmt_instance_pos[p, 0]
-                ipy = pmt_instance_pos[p, 1]
-                ipz = pmt_instance_pos[p, 2]
-                br = pmt_bounding_radii[p]
+                ipx = scene_f[o_pmt_instance_pos + (p) * 3 + 0]
+                ipy = scene_f[o_pmt_instance_pos + (p) * 3 + 1]
+                ipz = scene_f[o_pmt_instance_pos + (p) * 3 + 2]
+                br = scene_f[o_pmt_bounding_radii + p]
                 if br <= 0.0:
                     continue
 
@@ -907,15 +954,15 @@ def trace_kernel(
                 if t_enter < 1e-6 or t_enter >= best_t:
                     continue
 
-                rm0 = pmt_rotmats[p, 0]
-                rm1 = pmt_rotmats[p, 1]
-                rm2 = pmt_rotmats[p, 2]
-                rm3 = pmt_rotmats[p, 3]
-                rm4 = pmt_rotmats[p, 4]
-                rm5 = pmt_rotmats[p, 5]
-                rm6 = pmt_rotmats[p, 6]
-                rm7 = pmt_rotmats[p, 7]
-                rm8 = pmt_rotmats[p, 8]
+                rm0 = scene_f[o_pmt_rotmats + (p) * 9 + 0]
+                rm1 = scene_f[o_pmt_rotmats + (p) * 9 + 1]
+                rm2 = scene_f[o_pmt_rotmats + (p) * 9 + 2]
+                rm3 = scene_f[o_pmt_rotmats + (p) * 9 + 3]
+                rm4 = scene_f[o_pmt_rotmats + (p) * 9 + 4]
+                rm5 = scene_f[o_pmt_rotmats + (p) * 9 + 5]
+                rm6 = scene_f[o_pmt_rotmats + (p) * 9 + 6]
+                rm7 = scene_f[o_pmt_rotmats + (p) * 9 + 7]
+                rm8 = scene_f[o_pmt_rotmats + (p) * 9 + 8]
 
                 lox = ocx * rm0 + ocy * rm1 + ocz * rm2
                 loy = ocx * rm3 + ocy * rm4 + ocz * rm5
@@ -926,7 +973,7 @@ def trace_kernel(
 
                 _hit, _t, _tri, _nx, _ny, _nz = _packed_bvh_nearest(
                     hw_root, lox, loy, loz, ldx, ldy, ldz, best_t,
-                    pmt_bvh_bounds, pmt_bvh_nodes, pmt_bvh_tri_ids, pmt_hw_tris,
+                    scene_f, scene_i, o_pmt_bvh_bounds, o_pmt_bvh_nodes, o_pmt_bvh_tri_ids, o_pmt_hw_tris,
                 )
                 if _hit:
                     hx_l = lox + ldx * _t
@@ -952,19 +999,19 @@ def trace_kernel(
                     best_hit = CID_INNER_STRUCTURE
                     best_det_idx = -1
                     best_det_sys = DET_SYS_NONE
-                    best_mat = pmt_hw_mat_ids[_tri]
+                    best_mat = scene_i[o_pmt_hw_mat_ids + _tri]
 
         for l in range(n_lappds):
-            lcx = lappd_data[l, 0]
-            lcy = lappd_data[l, 1]
-            lcz = lappd_data[l, 2]
-            lux = lappd_data[l, 3]
-            luy = lappd_data[l, 4]
-            luz = lappd_data[l, 5]
-            lhalf = lappd_data[l, 6]
-            sx = lappd_strip[l, 0]
-            sy = lappd_strip[l, 1]
-            sz = lappd_strip[l, 2]
+            lcx = scene_f[o_lappd_data + (l) * 7 + 0]
+            lcy = scene_f[o_lappd_data + (l) * 7 + 1]
+            lcz = scene_f[o_lappd_data + (l) * 7 + 2]
+            lux = scene_f[o_lappd_data + (l) * 7 + 3]
+            luy = scene_f[o_lappd_data + (l) * 7 + 4]
+            luz = scene_f[o_lappd_data + (l) * 7 + 5]
+            lhalf = scene_f[o_lappd_data + (l) * 7 + 6]
+            sx = scene_f[o_lappd_strip + (l) * 3 + 0]
+            sy = scene_f[o_lappd_strip + (l) * 3 + 1]
+            sz = scene_f[o_lappd_strip + (l) * 3 + 2]
 
             hit, t_hit, nx, ny, nz = _ray_rectangle_intersect(
                 ox, oy, oz, dx, dy, dz,
@@ -996,11 +1043,11 @@ def trace_kernel(
 
         # ---- ANNIE LAPPD housing model (if present) ----
         for h in range(n_housings):
-            hc_x, hc_y, hc_z = housing_data[h, 0], housing_data[h, 1], housing_data[h, 2]
-            a_x_x, a_x_y, a_x_z = housing_data[h, 3], housing_data[h, 4], housing_data[h, 5]
-            a_y_x, a_y_y, a_y_z = housing_data[h, 6], housing_data[h, 7], housing_data[h, 8]
-            a_z_x, a_z_y, a_z_z = housing_data[h, 9], housing_data[h, 10], housing_data[h, 11]
-            h_hx, h_hy, h_hz = housing_data[h, 12], housing_data[h, 13], housing_data[h, 14]
+            hc_x, hc_y, hc_z = scene_f[o_housing_data + (h) * 16 + 0], scene_f[o_housing_data + (h) * 16 + 1], scene_f[o_housing_data + (h) * 16 + 2]
+            a_x_x, a_x_y, a_x_z = scene_f[o_housing_data + (h) * 16 + 3], scene_f[o_housing_data + (h) * 16 + 4], scene_f[o_housing_data + (h) * 16 + 5]
+            a_y_x, a_y_y, a_y_z = scene_f[o_housing_data + (h) * 16 + 6], scene_f[o_housing_data + (h) * 16 + 7], scene_f[o_housing_data + (h) * 16 + 8]
+            a_z_x, a_z_y, a_z_z = scene_f[o_housing_data + (h) * 16 + 9], scene_f[o_housing_data + (h) * 16 + 10], scene_f[o_housing_data + (h) * 16 + 11]
+            h_hx, h_hy, h_hz = scene_f[o_housing_data + (h) * 16 + 12], scene_f[o_housing_data + (h) * 16 + 13], scene_f[o_housing_data + (h) * 16 + 14]
 
             box_hit, t_box, is_front = _ray_box_intersect(
                 ox, oy, oz, dx, dy, dz,
@@ -1025,9 +1072,9 @@ def trace_kernel(
                 best_det_sys = DET_SYS_NONE
 
             # ANNIE LAPPD photocathode (inside housing, at front face)
-            apc_x, apc_y, apc_z = annie_lappd_data[h, 0], annie_lappd_data[h, 1], annie_lappd_data[h, 2]
-            apc_nx, apc_ny, apc_nz = annie_lappd_data[h, 3], annie_lappd_data[h, 4], annie_lappd_data[h, 5]
-            apc_half = annie_lappd_data[h, 6]
+            apc_x, apc_y, apc_z = scene_f[o_annie_lappd_data + (h) * 7 + 0], scene_f[o_annie_lappd_data + (h) * 7 + 1], scene_f[o_annie_lappd_data + (h) * 7 + 2]
+            apc_nx, apc_ny, apc_nz = scene_f[o_annie_lappd_data + (h) * 7 + 3], scene_f[o_annie_lappd_data + (h) * 7 + 4], scene_f[o_annie_lappd_data + (h) * 7 + 5]
+            apc_half = scene_f[o_annie_lappd_data + (h) * 7 + 6]
 
             pc_hit, t_pc, pc_nx, pc_ny, pc_nz = _ray_rectangle_intersect(
                 ox, oy, oz, dx, dy, dz,
@@ -1059,21 +1106,21 @@ def trace_kernel(
 
         # ---- Surfboard obscurant panels (PVC material, configurable optics) ----
         for s in range(n_surfboards):
-            scx = surfboard_data[s, 0]
-            scy = surfboard_data[s, 1]
-            scz = surfboard_data[s, 2]
-            ax_x = surfboard_data[s, 3]
-            ax_y = surfboard_data[s, 4]
-            ax_z = surfboard_data[s, 5]
-            ay_x = surfboard_data[s, 6]
-            ay_y = surfboard_data[s, 7]
-            ay_z = surfboard_data[s, 8]
-            az_x = surfboard_data[s, 9]
-            az_y = surfboard_data[s, 10]
-            az_z = surfboard_data[s, 11]
-            shx = surfboard_data[s, 12]
-            shy = surfboard_data[s, 13]
-            shz = surfboard_data[s, 14]
+            scx = scene_f[o_surfboard_data + (s) * 16 + 0]
+            scy = scene_f[o_surfboard_data + (s) * 16 + 1]
+            scz = scene_f[o_surfboard_data + (s) * 16 + 2]
+            ax_x = scene_f[o_surfboard_data + (s) * 16 + 3]
+            ax_y = scene_f[o_surfboard_data + (s) * 16 + 4]
+            ax_z = scene_f[o_surfboard_data + (s) * 16 + 5]
+            ay_x = scene_f[o_surfboard_data + (s) * 16 + 6]
+            ay_y = scene_f[o_surfboard_data + (s) * 16 + 7]
+            ay_z = scene_f[o_surfboard_data + (s) * 16 + 8]
+            az_x = scene_f[o_surfboard_data + (s) * 16 + 9]
+            az_y = scene_f[o_surfboard_data + (s) * 16 + 10]
+            az_z = scene_f[o_surfboard_data + (s) * 16 + 11]
+            shx = scene_f[o_surfboard_data + (s) * 16 + 12]
+            shy = scene_f[o_surfboard_data + (s) * 16 + 13]
+            shz = scene_f[o_surfboard_data + (s) * 16 + 14]
 
             sb_hit, t_sb, _ = _ray_box_intersect(
                 ox, oy, oz, dx, dy, dz,
