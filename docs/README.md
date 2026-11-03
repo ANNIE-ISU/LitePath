@@ -341,6 +341,16 @@ that fit residuals can be computed for validation.
   is no longer read; its contents became `metrology-draft.yaml`. LAPPD
   position adjustments still use `litepath/lappd_corrections.csv`.
 
+- **`geometry-viz`** — Geometry workbench, served at `http://localhost:8082`
+  (`--geometry`, the `--no-*` switches, `--host`, `--port`). The viz
+  server's geometry tools (scan overlays and tip markers, PMT position
+  adjustment, LAPPD and surfboard positions) without the muon and
+  photon-trace parts; the light-source controls only place the scene's
+  light. It saves PMT adjustments the same way (draft versions only):
+  `geometry-viz --geometry annie-2026-data-tuning`. For now the same tools
+  are still in `viz-server`; they will be removed there once the workbench
+  is approved.
+
 - **`viz-lappd`** — Standalone LAPPD module viewer, served at
   `http://localhost:8081` (`--host`, `--port` as above).
 - **`benchmark`** — Converts WAGLE ROOT trees (ANNIE data and MC) into the

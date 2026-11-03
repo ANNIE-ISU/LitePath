@@ -83,6 +83,7 @@ class VizHandler(BaseHTTPRequestHandler):
     _corrections: dict[int, tuple[float, float, float]] = {}  # total offset per PMT (mm)
     _overlay_path: Path | None = None      # draft overlay that adjustments are saved to
     _geometry_name: str = ""
+    _geometry_status: str = ""
     _lappd_corr_path: str | None = None
 
     def log_message(self, fmt, *args):
@@ -2650,8 +2651,10 @@ init();
 """
 
 
-def run_server(args):
+def run_server(args, handler_cls=None, title="Viz server"):
+    """Build the detector and serve it; *handler_cls* defaults to VizHandler."""
     global geometry, pmt_instance_data
+    handler_cls = handler_cls or VizHandler
 
     import taichi as ti
 
@@ -2678,6 +2681,7 @@ def run_server(args):
     # PMT offsets come from the geometry version's overlays (already applied).
     VizHandler._corrections = dict(build.pmt_offsets)
     VizHandler._geometry_name = build.version.name
+    VizHandler._geometry_status = build.version.status
     VizHandler._overlay_path = editable_overlay(build.version)
     VizHandler._lappd_corr_path = str(Path(__file__).resolve().parent / "lappd_corrections.csv")
     print(f"  PMT offsets: {len(build.pmt_offsets)} from the geometry version")
@@ -2738,8 +2742,8 @@ def run_server(args):
 
     host = args.host
     port = args.port
-    server = HTTPServer((host, port), VizHandler)
-    print(f"\nViz server at http://{host}:{port}/")
+    server = HTTPServer((host, port), handler_cls)
+    print(f"\n{title} at http://{host}:{port}/")
     print("Press Ctrl+C to stop.")
     try:
         server.serve_forever()

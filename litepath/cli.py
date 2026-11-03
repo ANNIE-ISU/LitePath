@@ -165,6 +165,16 @@ def build_parser() -> argparse.ArgumentParser:
     viz.add_argument("--surfboard", type=int, default=0, choices=[0, 1, 3],
                      help="Number of obscurant PVC surfboards (0, 1, or 3)")
 
+    gviz = sub.add_parser("geometry-viz",
+                          help="Start the geometry workbench: view, compare and adjust the detector geometry")
+    gviz.add_argument("--host", type=str, default="localhost", help="Host to bind (default: localhost)")
+    gviz.add_argument("--port", type=int, default=8082, help="Port to bind (default: 8082)")
+    gviz.add_argument("--no-lappd", action="store_true", help="Skip LAPPDs")
+    gviz.add_argument("--no-gdml", action="store_true",
+                      help="Skip inner structure GDML mesh (tank + PMTs only)")
+    gviz.add_argument("--no-pmt-holders", action="store_true",
+                      help="Skip PMT body and hardware holder meshes (PMT positions still loaded)")
+
     detcfg = sub.add_parser("build-detector-config",
                             help="Build detector registry YAML from geometry")
     detcfg.add_argument("--gdml", type=Path, default=Path("PHASE2_INNER_STRUCTURE_closed.gdml"),
@@ -404,7 +414,7 @@ def build_parser() -> argparse.ArgumentParser:
     fit.add_argument("--polar", action="store_true",
                      help="Force polar projection (default: rectangular for zoomed-in, polar for full-sky)")
 
-    for geometry_parser in (detcfg, batch, fit, bench, viz):
+    for geometry_parser in (detcfg, batch, fit, bench, viz, gviz):
         add_geometry_option(geometry_parser)
 
     return p
@@ -899,6 +909,10 @@ def main(argv: list[str] | None = None) -> None:
         from litepath.viz_server import run_server
 
         run_server(args)
+    elif args.command == "geometry-viz":
+        from litepath.geometry_viz import run_server as run_geometry_viz
+
+        run_geometry_viz(args)
     elif args.command == "viz-lappd":
         from litepath.viz_lappd_server import run_server as run_lappd_server
 
