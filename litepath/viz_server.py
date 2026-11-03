@@ -11,21 +11,16 @@ Usage:
 from __future__ import annotations
 
 import copy
-import csv
 import json
-import os
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
-import numpy as np
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 import numpy as np
 
-from litepath.geometry.frame import structure_to_frame
 from litepath.pmt_mesh import build_viz_caches
-from litepath.geometry.build import reload_lappd_corrections
-from litepath.geometry.versions import editable_overlay, read_pmt_offsets, write_pmt_offsets
+from litepath.geometry.versions import editable_overlay
 from litepath.simulate import trace_muon_light
 from litepath.hits import HI, HCID, HX, HZ, H_SOURCE, SOURCE_CKV, SOURCE_SCI
 
@@ -53,28 +48,6 @@ for _mi, _d in PMT_MESH_CACHE.items():
     _pvc_n = len(PMT_MESH_PVC_CACHE.get(_mi, b"")) // 36
     print(f"  PMT mesh {_mi}: {_n} tris (PC sub: {_pc_n}, PVC sub: {_pvc_n})")
 
-# ---- PMT tip positions cache ----
-PMT_TIPS_CACHE: list[dict] | None = None  # loaded from pmt_tip_positions.csv
-
-# ---- Scan mesh overlay cache ----
-SCAN_MESH_DIR = Path("scan files by part") / "transformed"
-SCAN_MESH_CACHE: dict[str, tuple[bytes, bytes]] = {}  # name -> (verts_bytes, tris_bytes)
-
-def _load_scan_mesh(name: str):
-    """Load a pre-processed scan mesh from .npy files into the cache.
-
-    The meshes are stored in the GDML structure frame.
-    """
-    verts_path = SCAN_MESH_DIR / f"{name}_verts.npy"
-    tris_path = SCAN_MESH_DIR / f"{name}_tris.npy"
-    if verts_path.exists() and tris_path.exists():
-        verts = np.load(verts_path)
-        tris = np.load(tris_path)
-        verts = structure_to_frame(verts)
-        SCAN_MESH_CACHE[name] = (verts.tobytes(), tris.tobytes())
-        return True
-    return False
-
 # ---------------------------------------------------------------------------
 
 class VizHandler(BaseHTTPRequestHandler):
@@ -85,7 +58,6 @@ class VizHandler(BaseHTTPRequestHandler):
     _geometry_name: str = ""
     _geometry_status: str = ""
     _build = None                          # the geometry build being served
-    _lappd_corr_path: str | None = None
 
     def log_message(self, fmt, *args):
         pass  # quiet
@@ -126,8 +98,6 @@ class VizHandler(BaseHTTPRequestHandler):
             self._send_lappd_housing()
         elif path == "/api/surfboards":
             self._send_surfboards()
-        elif path == "/api/lappd_correction":
-            self._send_lappd_correction()
         elif path == "/api/detectors":
             self._send_detectors()
         elif path.startswith("/api/pmt_mesh/"):
@@ -138,12 +108,6 @@ class VizHandler(BaseHTTPRequestHandler):
             self._send_pmt_mesh_pvc(path)
         elif path.startswith("/api/pmt_mesh_colors/"):
             self._send_pmt_mesh_colors(path)
-        elif path == "/api/scan_mesh/list":
-            self._send_scan_mesh_list()
-        elif path.startswith("/api/scan_mesh/"):
-            self._send_scan_mesh(path)
-        elif path == "/api/pmt_tips":
-            self._send_pmt_tips()
         else:
             self.send_error(404)
 
@@ -153,86 +117,10 @@ class VizHandler(BaseHTTPRequestHandler):
         data = json.loads(body)
         path = urlparse(self.path).path
 
-        if path == "/api/correction/save":
-            self._save_correction(data)
-        elif path == "/api/lappd_correction":
-            self._save_lappd_correction(data)
-        elif path == "/api/surfboard/adjust":
-            self._handle_surfboard_adjust(data)
-        elif path == "/api/lappd/adjust":
-            self._handle_lappd_adjust(data)
-        elif path == "/api/lappd/readout":
+        if path == "/api/lappd/readout":
             self._handle_lappd_readout(data)
         else:
             self.send_error(404)
-
-    def _save_correction(self, data):
-        if self._overlay_path is None:
-            self._send_json({"error": (
-                f"geometry '{self._geometry_name}' is not editable; start the viz server "
-                "with --geometry annie-2026-data-tuning (or another draft version) to "
-                "adjust PMT positions")}, 400)
-            return
-        tube_id = int(data["tube_id"])
-        axial = float(data["axial"])
-        tangential = float(data["tangential"])
-        vertical = float(data["vertical"])
-
-        dets = list(self._pmt_data["detector_nums"])
-        if tube_id not in dets:
-            self._send_json({"error": "tube not found"}, 400)
-            return
-        idx = dets.index(tube_id)
-        d = self._pmt_data["directions"][idx]
-
-        # Determine mode from direction
-        if abs(d[2]) > 0.99:  # bottom or top PMT — global XYZ
-            dx, dy, dz = axial, tangential, vertical
-        else:  # barrel PMT — local axis basis
-            e_axial = np.array([d[0], d[1], d[2]], dtype=np.float64)
-            e_vertical = np.array([0.0, 0.0, 1.0], dtype=np.float64)
-            e_tangential = np.cross(e_vertical, e_axial)
-            tnorm = np.linalg.norm(e_tangential)
-            if tnorm > 1e-9:
-                e_tangential /= tnorm
-            else:
-                e_tangential = np.array([1.0, 0.0, 0.0], dtype=np.float64)
-            dx = axial * e_axial[0] + tangential * e_tangential[0] + vertical * e_vertical[0]
-            dy = axial * e_axial[1] + tangential * e_tangential[1] + vertical * e_vertical[1]
-            dz = axial * e_axial[2] + tangential * e_tangential[2] + vertical * e_vertical[2]
-
-        # (dx, dy, dz) is the new total offset, in the final structure frame.
-        # Other overlays of the version may contribute too, so the editable
-        # overlay gets the change in the total.
-        old = self._corrections.get(tube_id, (0.0, 0.0, 0.0))
-        file_offsets = read_pmt_offsets(self._overlay_path)
-        in_file = file_offsets.get(tube_id, (0.0, 0.0, 0.0))
-        file_offsets[tube_id] = tuple(f + n - o for f, n, o in zip(in_file, (dx, dy, dz), old))
-        write_pmt_offsets(self._overlay_path, file_offsets)
-        self._corrections[tube_id] = (dx, dy, dz)
-
-        # Apply delta to instance_positions
-        positions = self._pmt_data["instance_positions"]
-        positions[idx, 0] += dx - old[0]
-        positions[idx, 1] += dy - old[1]
-        positions[idx, 2] += dz - old[2]
-
-        # Apply same delta to kernel geometry so mesh refinement finds corrected positions
-        if idx < geometry.pmt_instance_pos.shape[0]:  # empty with --no-pmt-holders
-            geometry.pmt_instance_pos[idx, 0] += dx - old[0]
-            geometry.pmt_instance_pos[idx, 1] += dy - old[1]
-            geometry.pmt_instance_pos[idx, 2] += dz - old[2]
-        geometry.pmt_centers[idx, 0] += dx - old[0]
-        geometry.pmt_centers[idx, 1] += dy - old[1]
-        geometry.pmt_centers[idx, 2] += dz - old[2]
-
-        self._send_json({
-            "success": True,
-            "tube_id": tube_id,
-            "instance_position": [float(positions[idx, 0]),
-                                  float(positions[idx, 1]),
-                                  float(positions[idx, 2])],
-        })
 
     def _send_lappd_housing(self):
         if geometry.lappd_housing_data.shape[0] == 0:
@@ -270,19 +158,6 @@ class VizHandler(BaseHTTPRequestHandler):
             })
         self._send_json({"surfboards": boards})
 
-    def _handle_surfboard_adjust(self, data):
-        idx = int(data["index"])
-        cx = float(data["cx"])
-        cy = float(data["cy"])
-        cz = float(data["cz"])
-        if 0 <= idx < geometry.surfboard_data.shape[0]:
-            geometry.surfboard_data[idx, 0] = cx
-            geometry.surfboard_data[idx, 1] = cy
-            geometry.surfboard_data[idx, 2] = cz
-            self._send_json({"ok": True})
-        else:
-            self._send_json({"error": "invalid index"}, 400)
-
     def _handle_lappd_readout(self, data):
         _proc_lappd = None
         try:
@@ -314,56 +189,6 @@ class VizHandler(BaseHTTPRequestHandler):
                 "side1": r["side1"].tolist(),
             })
         self._send_json({"readouts": readouts})
-
-    def _handle_lappd_adjust(self, data):
-        idx = int(data["index"])
-        cx = float(data["cx"])
-        cy = float(data["cy"])
-        cz = float(data["cz"])
-        if 0 <= idx < geometry.lappd_housing_data.shape[0]:
-            old_center = geometry.lappd_housing_data[idx, 0:3].copy()
-            geometry.lappd_housing_data[idx, 0] = cx
-            geometry.lappd_housing_data[idx, 1] = cy
-            geometry.lappd_housing_data[idx, 2] = cz
-            delta = np.array([cx, cy, cz]) - old_center
-            geometry.annie_lappd_data[idx, 0:3] += delta
-            self._send_json({"ok": True})
-        else:
-            self._send_json({"error": "invalid index"}, 400)
-
-    def _send_lappd_correction(self):
-        if not self._lappd_corr_path or not os.path.exists(self._lappd_corr_path):
-            self._send_json({"corrections": [{"idx": 0, "dx": 0, "dy": 0, "dz": 0}]})
-            return
-        with open(self._lappd_corr_path, newline="") as f:
-            rows = list(csv.DictReader(f))
-        self._send_json({"corrections": rows})
-
-    def _save_lappd_correction(self, data):
-        idx = int(data.get("idx", 0))
-        dx = float(data.get("dx", 0))
-        dy = float(data.get("dy", 0))
-        dz = float(data.get("dz", 0))
-        if not self._lappd_corr_path:
-            self._send_json({"error": "no LAPPD correction path"}, 400)
-            return
-        corrected = False
-        rows = []
-        if os.path.exists(self._lappd_corr_path):
-            with open(self._lappd_corr_path, newline="") as f:
-                for row in csv.DictReader(f):
-                    if int(row["idx"]) == idx:
-                        row["dx"], row["dy"], row["dz"] = str(dx), str(dy), str(dz)
-                        corrected = True
-                    rows.append(row)
-        if not corrected:
-            rows.append({"idx": str(idx), "dx": str(dx), "dy": str(dy), "dz": str(dz)})
-        with open(self._lappd_corr_path, "w", newline="") as f:
-            w = csv.writer(f)
-            w.writerow(["idx", "dx", "dy", "dz"])
-            for r in rows:
-                w.writerow([r["idx"], r["dx"], r["dy"], r["dz"]])
-        self._send_json({"status": "ok"})
 
     def _send_detectors(self):
         dets = []
@@ -471,35 +296,6 @@ class VizHandler(BaseHTTPRequestHandler):
             return
         self._send_binary(data, content_type="application/octet-stream")
 
-    def _send_scan_mesh_list(self):
-        names = sorted(SCAN_MESH_CACHE.keys())
-        self._send_json({"meshes": names})
-
-    def _send_scan_mesh(self, path):
-        parts = path.split("/")
-        if len(parts) < 4:
-            self._send_json({"error": "invalid path"}, 400)
-            return
-        mesh_name = parts[-2]
-        data_type = parts[-1]
-        entry = SCAN_MESH_CACHE.get(mesh_name)
-        if entry is None:
-            self._send_json({"error": f"mesh '{mesh_name}' not available"}, 404)
-            return
-        verts_bytes, tris_bytes = entry
-        if data_type == "verts":
-            self._send_binary(verts_bytes)
-        elif data_type == "tris":
-            self._send_binary(tris_bytes)
-        else:
-            self._send_json({"error": "invalid data type"}, 400)
-
-    def _send_pmt_tips(self):
-        if PMT_TIPS_CACHE is None:
-            self._send_json({"tips": []})
-            return
-        self._send_json({"tips": PMT_TIPS_CACHE})
-
     def _handle_trace(self, params):
         try:
             mx = float(params.get("mx", ["0"])[0])
@@ -522,7 +318,6 @@ class VizHandler(BaseHTTPRequestHandler):
 
         rng = np.random.default_rng()
         t0 = time.time()
-        reload_lappd_corrections(geometry)
         hits = trace_muon_light(
             (mx, my, mz), (dx, dy, dz), photons_per_cm, geometry, rng=rng,
             scintillation_enabled=scintillation,
@@ -630,51 +425,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
   .hit-summary { display:grid; grid-template-columns:1fr 1fr; gap:2px 12px; }
   .hit-summary .label { color:#666; }
   .hit-summary .value { text-align:right; color:#000; }
-  #pmt-adjust {
-    display:none; position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
-    background:rgba(240,242,245,0.95); color:#333; padding:12px 20px;
-    border-radius:8px; font-size:13px; z-index:200; min-width:340px;
-    text-align:center; backdrop-filter:blur(4px);
-    border:1px solid rgba(0,0,0,0.12); box-shadow:0 4px 20px rgba(0,0,0,0.15);
-  }
-  #pmt-adjust .adj-row { display:flex; align-items:center; gap:8px; margin:4px 0; justify-content:center; }
-  #pmt-adjust .adj-row label { min-width:80px; text-align:right; }
-  #pmt-adjust .adj-row input[type=range] { width:140px; margin:0; accent-color:#4488cc; }
-  #pmt-adjust .adj-row .val { min-width:50px; text-align:left; font-family:monospace; }
-  #pmt-adjust button {
-    margin:6px 4px 0; padding:5px 16px; border:none; border-radius:4px; font-size:12px; cursor:pointer;
-  }
-  #pmt-adjust #adj-save { background:#4488cc; color:#fff; }
-  #pmt-adjust #adj-save:hover { background:#5599dd; }
-  #pmt-adjust #adj-reset { background:#888; color:#fff; }
-  #pmt-adjust #adj-reset:hover { background:#999; }
-  #pmt-adjust #adj-cancel { background:#ccc; color:#333; }
-  #pmt-adjust #adj-cancel:hover { background:#ddd; }
-  #housing-popup {
-    display:none; position:fixed; bottom:80px; left:50%; transform:translateX(-50%);
-    background:rgba(240,242,245,0.95); color:#333; padding:12px 20px;
-    border-radius:8px; font-size:13px; z-index:200; min-width:400px;
-    text-align:center; backdrop-filter:blur(4px);
-    border:1px solid rgba(0,0,0,0.12); box-shadow:0 4px 20px rgba(0,0,0,0.15);
-  }
-  #surfboard-popup {
-    display:none; position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
-    background:rgba(240,242,245,0.95); color:#333; padding:12px 20px;
-    border-radius:8px; font-size:13px; z-index:200; min-width:400px;
-    text-align:center; backdrop-filter:blur(4px);
-    border:1px solid rgba(0,0,0,0.12); box-shadow:0 4px 20px rgba(0,0,0,0.15);
-  }
-  #surfboard-popup .sb-title { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
-  #surfboard-popup .sb-title h3 { margin:0; font-size:14px; }
-  #surfboard-popup .sb-title button { background:none; border:none; font-size:16px; cursor:pointer; color:#666; padding:2px 6px; border-radius:4px; }
-  #surfboard-popup .sb-title button:hover { background:rgba(0,0,0,0.1); color:#000; }
-  #surfboard-popup .sb-row { display:flex; align-items:center; gap:6px; margin:4px 0; justify-content:center; }
-  #surfboard-popup .sb-row label { min-width:80px; text-align:right; font-size:12px; }
-  #surfboard-popup .sb-row input[type=number] { width:60px; text-align:center; font-family:monospace; font-size:12px; }
-  #surfboard-popup .sb-row input[type=range] { width:180px; margin:0; accent-color:#4488cc; }
-  #surfboard-popup button { margin:6px 4px 0; padding:5px 16px; border:none; border-radius:4px; font-size:12px; cursor:pointer; }
-  #surfboard-popup #surfReset { background:#888; color:#fff; }
-  #surfboard-popup #surfReset:hover { background:#999; }
 </style>
 </head>
 <body>
@@ -693,10 +443,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
   <label>Ambient <span id="ambientVal">0.50</span>
     <input type="range" id="ambient" min="0" max="2.0" step="0.01" value="0.50"></label>
   <hr style="margin:8px 0;border:none;border-top:1px solid rgba(0,0,0,0.1);">
-  <label>LAPPD dx <input type="number" id="lappdDx" step="1" value="0" style="width:70px;"></label>
-  <label>LAPPD dy <input type="number" id="lappdDy" step="1" value="0" style="width:70px;"></label>
-  <label>LAPPD dz <input type="number" id="lappdDz" step="1" value="0" style="width:70px;"></label>
-  <button id="saveLappdCorr">Save Correction</button>
   <button id="focusLAPPD" disabled>Focus on LAPPD</button>
   <button id="showLappdReadout" disabled style="margin-top:4px;">Show LAPPD Readout</button>
   <label style="margin-top:6px;"><input type="checkbox" id="lappdGrey"> Grey LAPPD</label>
@@ -710,35 +456,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
   <label style="margin-top:2px;"><input type="checkbox" id="showRefSpheres"> Show Reference Spheres</label>
   <label style="margin-top:0;font-size:12px;padding-left:24px;">Opacity <input type="range" id="refOpacity" min="0" max="0.5" step="0.01" value="0.12" style="width:100px;"></label>
   <label style="margin-top:2px;"><input type="checkbox" id="showTubeIDs"> Show Tube IDs</label>
-  <label style="margin-top:2px;"><input type="checkbox" id="showScan"> Show Scan Overlay</label>
-  <label style="margin-top:0;font-size:12px;padding-left:24px;">
-    Mesh <select id="scanMeshSelect" style="font-size:11px;">
-      <option value="SuperStructure">SuperStructure</option>
-      <option value="AllPMTs">All PMTs</option>
-      <option value="BottomLayer">Bottom Layer</option>
-      <option value="TopLayer">Top Layer</option>
-      <option value="Panel-1">Panel 1</option>
-      <option value="Panel-2">Panel 2</option>
-      <option value="Panel-3">Panel 3</option>
-      <option value="Panel-4">Panel 4</option>
-      <option value="Panel-5">Panel 5</option>
-      <option value="Panel-6">Panel 6</option>
-      <option value="Panel-7">Panel 7</option>
-      <option value="Panel-8">Panel 8</option>
-      <option value="Panel-1-PMTs">Panel 1 PMTs</option>
-      <option value="Panel-2-PMTs">Panel 2 PMTs</option>
-      <option value="Panel-3-PMTs">Panel 3 PMTs</option>
-      <option value="Panel-4-PMTs">Panel 4 PMTs</option>
-      <option value="Panel-5-PMTs">Panel 5 PMTs</option>
-      <option value="Panel-6-PMTs">Panel 6 PMTs</option>
-      <option value="Panel-7-PMTs">Panel 7 PMTs</option>
-      <option value="Panel-8-PMTs">Panel 8 PMTs</option>
-      <option value="TopPMTs">Top PMTs</option>
-      <option value="BottomPMTs">Bottom PMTs</option>
-      <option value="TankLid">Tank Lid</option>
-    </select>
-  </label>
-  <label style="margin-top:2px;"><input type="checkbox" id="showScanTips"> Show Scan Tips</label>
   <label style="margin-top:2px;"><input type="checkbox" id="showCone" checked> Show Cone Guide</label>
   <label style="margin-top:2px;"><input type="checkbox" id="showRayLines"> Show Ray Lines</label>
   <label style="margin-top:2px;"><input type="checkbox" id="showCkv" checked> Show Cherenkov</label>
@@ -765,32 +482,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
   <div style="margin-top:4px;font-size:11px;color:#666;">Real-time shadows · No server calls</div>
 </div>
 <div id="status">Loading geometry…</div>
-<div id="info">Drag to orbit · Scroll to zoom · Right-drag to pan</div>
-<div id="pmt-adjust">
-  <div style="margin-bottom:6px;"><b>PMT <span id="adj-tube-id"></span></b> <span id="adj-type" style="color:#888;font-size:11px;"></span></div>
-  <div id="adj-sliders">
-    <div class="adj-row">
-      <label id="adj-label-0">Axial</label>
-      <input type="range" id="adj-0" min="-100" max="100" step="0.1" value="0">
-      <span class="val" id="adj-val-0">0.0</span> mm
-    </div>
-    <div class="adj-row">
-      <label id="adj-label-1">Tangential</label>
-      <input type="range" id="adj-1" min="-100" max="100" step="0.1" value="0">
-      <span class="val" id="adj-val-1">0.0</span> mm
-    </div>
-    <div class="adj-row">
-      <label id="adj-label-2">Vertical</label>
-      <input type="range" id="adj-2" min="-100" max="100" step="0.1" value="0">
-      <span class="val" id="adj-val-2">0.0</span> mm
-    </div>
-  </div>
-  <div style="margin-top:4px;">
-    <button id="adj-save">Save</button>
-    <button id="adj-reset">Reset</button>
-    <button id="adj-cancel">Cancel</button>
-  </div>
-</div>
+<div id="info">Drag to orbit · Scroll to zoom · Right-drag to pan · Geometry tools: litepath geometry-viz</div>
 
 <script type="importmap">
 {
@@ -817,15 +509,10 @@ let ckvGroup = null;      // subgroup of Cherenkov hit dots inside tracePoints
 let sciGroup = null;      // subgroup of scintillation hit dots inside tracePoints
 let rayLines = null;      // group of line meshes for sampled ray paths
 let refSpheres = null;    // group of translucent reference spheres
-let scanOverlay = null;   // group for scan mesh overlay
 let traceResultEl = null;
 let pmtGroup = null;      // group of PMT body meshes
 let pmtHWGroup = null;    // group of PMT holder meshes
 let pmtData = null;       // full PMT data from /api/pmts
-let selectedIdx = -1;     // index of selected PMT, -1 = none
-let selectedSurfboard = -1; // index of selected surfboard, -1 = none
-let selectedHousing = -1; // index of selected LAPPD housing, -1 = none
-let selectedMesh = null;  // the mesh object currently highlighted
 
 // ---- DOM refs ----
 const statusEl = document.getElementById('status');
@@ -1669,50 +1356,12 @@ async function init() {
         refSpheres.visible = false;
         scene.add(refSpheres);
 
-        // Scan overlay (loaded on demand)
-        scanOverlay = new THREE.Group();
-        scanOverlay.visible = false;
-        scene.add(scanOverlay);
-
-        async function loadScanMesh(name) {
-            const [vertsResp, trisResp] = await Promise.all([
-                fetch(`/api/scan_mesh/${name}/verts`),
-                fetch(`/api/scan_mesh/${name}/tris`),
-            ]);
-            if (!vertsResp.ok || !trisResp.ok) return null;
-            const vertsBuf = await vertsResp.arrayBuffer();
-            const trisBuf = await trisResp.arrayBuffer();
-            const positions = new Float32Array(vertsBuf);
-            const indices = new Int32Array(trisBuf);
-            const geo = new THREE.BufferGeometry();
-            geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            geo.setIndex(new THREE.BufferAttribute(indices, 1));
-            // Flatten indexed to non-indexed (indexed path has rendering issues)
-            const pos = geo.getAttribute('position');
-            const idx = geo.getIndex();
-            const triCount = idx.count / 3;
-            const flatPos = new Float32Array(triCount * 9);
-            for (let i = 0; i < triCount; i++) {
-                for (let j = 0; j < 3; j++) {
-                    const vi = idx.getX(i * 3 + j);
-                    flatPos[i * 9 + j * 3 + 0] = pos.getX(vi);
-                    flatPos[i * 9 + j * 3 + 1] = pos.getY(vi);
-                    flatPos[i * 9 + j * 3 + 2] = pos.getZ(vi);
-                }
-            }
-            const flatGeo = new THREE.BufferGeometry();
-            flatGeo.setAttribute('position', new THREE.BufferAttribute(flatPos, 3));
-            flatGeo.computeVertexNormals();
-            return flatGeo;
-        }
-
         statusEl.textContent = `Loaded ${pmtData.centers.length} PMTs.`;
 
         // Load ANNIE LAPPD housings (if present)
         const housingResp = await fetch('/api/housing');
         housingData = await housingResp.json();
         housingMeshes.length = 0;
-        let housingCorrOrigins = [];  // original centers per housing (before global correction)
         if (Array.isArray(housingData.housing) && housingData.housing.length > 0) {
             const boxMat = new THREE.MeshStandardMaterial({
                 color: 0x446688,
@@ -1770,55 +1419,8 @@ async function init() {
                 scene.add(pcMesh);
 
                 housingMeshes.push({box: boxMesh, pc: pcMesh});
-                housingCorrOrigins.push({center: origCenter.clone(), pc: origPC.clone()});
                 hidx++;
             }
-
-            // LAPPD global dx/dy/dz corrections (applied to ALL housings)
-            const dxInput = document.getElementById('lappdDx');
-            const dyInput = document.getElementById('lappdDy');
-            const dzInput = document.getElementById('lappdDz');
-            const saveBtn = document.getElementById('saveLappdCorr');
-
-            const corrResp = await fetch('/api/lappd_correction');
-            const corrData = await corrResp.json();
-            let lappdCorr = {dx: 0, dy: 0, dz: 0};
-            if (corrData.corrections && corrData.corrections.length > 0) {
-                const c = corrData.corrections[0];
-                lappdCorr = {dx: parseFloat(c.dx), dy: parseFloat(c.dy), dz: parseFloat(c.dz)};
-            }
-            dxInput.value = lappdCorr.dx;
-            dyInput.value = lappdCorr.dy;
-            dzInput.value = lappdCorr.dz;
-
-            function applyLappdCorrection() {
-                const dx = parseFloat(dxInput.value) || 0;
-                const dy = parseFloat(dyInput.value) || 0;
-                const dz = parseFloat(dzInput.value) || 0;
-                for (let i = 0; i < housingMeshes.length; i++) {
-                    const hm = housingMeshes[i];
-                    const orig = housingCorrOrigins[i];
-                    hm.box.position.set(orig.center.x + dx, orig.center.y + dy, orig.center.z + dz);
-                    hm.pc.position.set(orig.pc.x + dx, orig.pc.y + dy, orig.pc.z + dz);
-                }
-            }
-
-            applyLappdCorrection();
-
-            saveBtn.addEventListener('click', async () => {
-                const body = JSON.stringify({
-                    idx: 0,
-                    dx: parseFloat(dxInput.value) || 0,
-                    dy: parseFloat(dyInput.value) || 0,
-                    dz: parseFloat(dzInput.value) || 0,
-                });
-                await fetch('/api/lappd_correction', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body,
-                });
-                applyLappdCorrection();
-            });
 
             // Grey LAPPD checkbox
             const greyCheck = document.getElementById('lappdGrey');
@@ -1853,7 +1455,6 @@ async function init() {
         // ---- Surfboard obscurant panels ----
         const surfResp = await fetch('/api/surfboards');
         const surfData = await surfResp.json();
-        const surfMeshes = [];
         if (Array.isArray(surfData.surfboards)) {
             const surfMat = new THREE.MeshStandardMaterial({
                 color: 0x333344,
@@ -1888,7 +1489,6 @@ async function init() {
                     axisZ: new THREE.Vector3(sb.axis_z[0], sb.axis_z[1], sb.axis_z[2]),
                 };
                 scene.add(mesh);
-                surfMeshes.push(mesh);
                 sbIdx++;
             }
         }
@@ -1955,105 +1555,6 @@ async function init() {
         showTubeIDsCheck.addEventListener('change', () => {
             labelGroup.visible = showTubeIDsCheck.checked;
         });
-
-        const showScanCheck = document.getElementById('showScan');
-        const scanMeshSelect = document.getElementById('scanMeshSelect');
-        let scanLoadedName = '';
-
-        async function loadScanOverlay(name) {
-            statusEl.textContent = `Loading ${name}…`;
-            const geo = await loadScanMesh(name);
-            if (!geo) {
-                statusEl.textContent = `Scan mesh '${name}' not available.`;
-                return null;
-            }
-            const box = new THREE.Box3().setFromBufferAttribute(geo.getAttribute('position'));
-            console.log(`Scan mesh '${name}' bounds:`, box.min.toArray(), box.max.toArray());
-            const mat = new THREE.MeshPhysicalMaterial({
-                color: 0x44aadd,
-                roughness: 0.5,
-                metalness: 0.0,
-                transparent: true,
-                opacity: 0.65,
-                side: THREE.DoubleSide,
-                depthWrite: true,
-            });
-            const mesh = new THREE.Mesh(geo, mat);
-            mesh.castShadow = false;
-            mesh.receiveShadow = false;
-            scanOverlay.add(mesh);
-            scanLoadedName = name;
-            statusEl.textContent = `Scan overlay '${name}' loaded.`;
-            return mesh;
-        }
-
-        showScanCheck.addEventListener('change', async () => {
-            if (showScanCheck.checked) {
-                if (scanOverlay.children.length === 0) {
-                    await loadScanOverlay(scanMeshSelect.value);
-                }
-                scanOverlay.visible = true;
-            } else {
-                scanOverlay.visible = false;
-            }
-        });
-
-        scanMeshSelect.addEventListener('change', async () => {
-            const name = scanMeshSelect.value;
-            // Clear current mesh
-            while (scanOverlay.children.length > 0) {
-                const child = scanOverlay.children[0];
-                child.geometry.dispose();
-                child.material.dispose();
-                scanOverlay.remove(child);
-            }
-            scanLoadedName = '';
-            if (showScanCheck.checked) {
-                await loadScanOverlay(name);
-                scanOverlay.visible = true;
-            }
-        });
-
-        // ---- PMT Scan Tips ----
-        let pmtTips = null;
-        const showScanTipsCheck = document.getElementById('showScanTips');
-        showScanTipsCheck.addEventListener('change', () => {
-            if (pmtTips) pmtTips.visible = showScanTipsCheck.checked;
-        });
-
-        async function loadPmtTips() {
-            const resp = await fetch('/api/pmt_tips');
-            const data = await resp.json();
-            if (!data.tips || data.tips.length === 0) return;
-
-            const tipGroup = new THREE.Group();
-            const highMat = new THREE.MeshBasicMaterial({ color: 0x44dd44 });
-            const medMat = new THREE.MeshBasicMaterial({ color: 0xdddd44 });
-            const lowMat = new THREE.MeshBasicMaterial({ color: 0xdd4444 });
-
-            for (const t of data.tips) {
-                if (!t.found) continue;
-                const r = t.reliability;
-                const mat = r >= 0.7 ? highMat : r >= 0.3 ? medMat : lowMat;
-                const geo = new THREE.SphereGeometry(8, 8, 6);
-                const mesh = new THREE.Mesh(geo, mat);
-                mesh.position.set(t.tip_x, t.tip_y, t.tip_z);
-                tipGroup.add(mesh);
-
-                // CSV seed position (smaller yellow dot)
-                const csvGeo = new THREE.SphereGeometry(4, 6, 4);
-                const csvMat = new THREE.MeshBasicMaterial({ color: 0xdddd00 });
-                const csvMesh = new THREE.Mesh(csvGeo, csvMat);
-                csvMesh.position.set(t.csv_x, t.csv_y, t.csv_z);
-                tipGroup.add(csvMesh);
-            }
-
-            tipGroup.visible = showScanTipsCheck.checked;
-            scene.add(tipGroup);
-            pmtTips = tipGroup;
-            statusEl.textContent += ` ${data.tips.length} tips loaded.`;
-        }
-        loadPmtTips();
 
         const pmtOpacitySlider = document.getElementById('pmtOpacity');
         pmtOpacitySlider.addEventListener('input', () => {
@@ -2137,415 +1638,6 @@ async function init() {
         }
         animate();
 
-        // ---- PMT click selection ----
-        const raycaster = new THREE.Raycaster();
-        const pointer = new THREE.Vector2();
-        const adjPanel = document.getElementById('pmt-adjust');
-        let meshStartPos = null;
-        let selectedStartSliders = null;
-        let adjBasis = null;
-
-        function sliderToCartesian(vals, basis) {
-            if (basis.mode === 'global') {
-                return new THREE.Vector3(vals[0], vals[1], vals[2]);
-            }
-            const a = vals[0], t = vals[1], v = vals[2];
-            return new THREE.Vector3(
-                a * basis.eAxial.x + t * basis.eTang.x + v * basis.eVert.x,
-                a * basis.eAxial.y + t * basis.eTang.y + v * basis.eVert.y,
-                a * basis.eAxial.z + t * basis.eTang.z + v * basis.eVert.z
-            );
-        }
-
-        function updatePMTPreview() {
-            if (selectedIdx < 0 || !adjBasis || !meshStartPos || !selectedStartSliders) return;
-            const vals = [
-                parseFloat(document.getElementById('adj-0').value),
-                parseFloat(document.getElementById('adj-1').value),
-                parseFloat(document.getElementById('adj-2').value),
-            ];
-            const currentCorr = sliderToCartesian(vals, adjBasis);
-            const startCorr = sliderToCartesian(selectedStartSliders, adjBasis);
-            const delta = currentCorr.clone().sub(startCorr);
-            const newPos = meshStartPos.clone().add(delta);
-            pmtGroup.children.forEach(ch => {
-                if (ch.userData && ch.userData.pmtIdx === selectedIdx) {
-                    ch.position.copy(newPos);
-                }
-            });
-            pmtHWGroup.children.forEach(ch => {
-                if (ch.userData && ch.userData.pmtIdx === selectedIdx) {
-                    ch.position.copy(newPos);
-                }
-            });
-        }
-
-        function cancelAdjustment() {
-            if (selectedMesh && meshStartPos) {
-                pmtGroup.children.forEach(ch => {
-                    if (ch.userData && ch.userData.pmtIdx === selectedIdx) {
-                        ch.position.copy(meshStartPos);
-                    }
-                });
-                pmtHWGroup.children.forEach(ch => {
-                    if (ch.userData && ch.userData.pmtIdx === selectedIdx) {
-                        ch.position.copy(meshStartPos);
-                    }
-                });
-            }
-            deselectPMT();
-        }
-
-        function deselectPMT() {
-            if (selectedMesh) {
-                selectedMesh.material.emissive.setHex(0x000000);
-                selectedMesh.material.emissiveIntensity = 0;
-            }
-            selectedIdx = -1;
-            selectedMesh = null;
-            adjPanel.style.display = 'none';
-            meshStartPos = null;
-            selectedStartSliders = null;
-            adjBasis = null;
-        }
-
-        function selectPMT(idx) {
-            if (selectedMesh) {
-                selectedMesh.material.emissive.setHex(0x000000);
-                selectedMesh.material.emissiveIntensity = 0;
-            }
-            selectedIdx = idx;
-            selectedMesh = null;
-            const tubeId = pmtData.detector_nums[idx];
-            const type = pmtData.types[idx];
-            const dir = pmtData.directions[idx];
-            const corr = pmtData.corrections[tubeId] || [0, 0, 0];
-
-            document.getElementById('adj-tube-id').textContent = tubeId;
-            document.getElementById('adj-type').textContent = type;
-            adjPanel.style.display = 'block';
-
-            // Compute basis and initial slider values
-            let v0, v1, v2, labels;
-            const eVert = new THREE.Vector3(0, 0, 1);
-            const eAxial = new THREE.Vector3(dir[0], dir[1], dir[2]);
-            const eTang = new THREE.Vector3().crossVectors(eVert, eAxial);
-            const tLen = eTang.length();
-            let mode;
-
-            if (tLen < 1e-6) {  // bottom/top — global XYZ
-                mode = 'global';
-                labels = ['dX', 'dY', 'dZ'];
-                v0 = corr[0]; v1 = corr[1]; v2 = corr[2];
-            } else {
-                mode = 'local';
-                eTang.divideScalar(tLen);
-                labels = ['Axial', 'Tangential', 'Vertical'];
-                v0 = corr[0]*eAxial.x + corr[1]*eAxial.y + corr[2]*eAxial.z;
-                v1 = corr[0]*eTang.x  + corr[1]*eTang.y  + corr[2]*eTang.z;
-                v2 = corr[2];  // dot with (0,0,1)
-            }
-
-            for (let k = 0; k < 3; k++) {
-                document.getElementById('adj-label-' + k).textContent = labels[k];
-                const sl = document.getElementById('adj-' + k);
-                const vals = [v0, v1, v2];
-                sl.value = vals[k];
-                document.getElementById('adj-val-' + k).textContent = parseFloat(vals[k]).toFixed(1);
-            }
-
-            // Highlight the clicked mesh — find a mesh belonging to this PMT
-            const allMeshes = [];
-            pmtGroup.children.forEach(ch => { if (ch.userData && ch.userData.pmtIdx === idx) allMeshes.push(ch); });
-            pmtHWGroup.children.forEach(ch => { if (ch.userData && ch.userData.pmtIdx === idx) allMeshes.push(ch); });
-            if (allMeshes.length > 0) {
-                selectedMesh = allMeshes[0];
-                selectedMesh.material.emissive.setHex(0x4444ff);
-                selectedMesh.material.emissiveIntensity = 0.5;
-            }
-
-            // Record start state for preview
-            meshStartPos = selectedMesh ? selectedMesh.position.clone() : new THREE.Vector3(0,0,0);
-            selectedStartSliders = [v0, v1, v2];
-            adjBasis = { mode, eAxial: eAxial.clone(), eTang: eTang.clone(), eVert: eVert.clone() };
-        }
-
-        renderer.domElement.addEventListener('click', (event) => {
-            const rect = renderer.domElement.getBoundingClientRect();
-            pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-            pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-            raycaster.setFromCamera(pointer, camera);
-
-            const targets = [];
-            pmtGroup.children.forEach(ch => { if (ch.userData && ch.userData.pmtIdx !== undefined) targets.push(ch); });
-            pmtHWGroup.children.forEach(ch => { if (ch.userData && ch.userData.pmtIdx !== undefined && ch.visible) targets.push(ch); });
-
-            const pmtHits = raycaster.intersectObjects(targets);
-            if (pmtHits.length > 0) {
-                deselectPMT();
-                deselectSurfboard();
-                selectPMT(pmtHits[0].object.userData.pmtIdx);
-                return;
-            }
-
-            // Check housing clicks
-            const housingTargets = housingMeshes.map(hm => hm.box);
-            const housingHits = raycaster.intersectObjects(housingTargets);
-            if (housingHits.length > 0) {
-                deselectPMT();
-                deselectSurfboard();
-                selectHousing(housingHits[0].object.userData.hIdx);
-                return;
-            }
-
-            const surfHits = raycaster.intersectObjects(surfMeshes);
-            if (surfHits.length > 0) {
-                deselectPMT();
-                deselectHousing();
-                selectSurfboard(surfHits[0].object.userData.sbIdx);
-            } else if (selectedSurfboard >= 0) {
-                deselectSurfboard();
-            } else if (selectedHousing >= 0) {
-                deselectHousing();
-            } else if (selectedIdx >= 0) {
-                deselectPMT();
-            }
-        });
-
-        // Slider live update
-        for (let k = 0; k < 3; k++) {
-            document.getElementById('adj-' + k).addEventListener('input', (e) => {
-                const idx = parseInt(e.target.id.split('-')[1]);
-                document.getElementById('adj-val-' + idx).textContent = parseFloat(e.target.value).toFixed(1);
-                updatePMTPreview();
-            });
-        }
-
-        document.getElementById('adj-save').addEventListener('click', async () => {
-            if (selectedIdx < 0) return;
-            const tubeId = pmtData.detector_nums[selectedIdx];
-            const axial = parseFloat(document.getElementById('adj-0').value);
-            const tangential = parseFloat(document.getElementById('adj-1').value);
-            const vertical = parseFloat(document.getElementById('adj-2').value);
-
-            // Capture current live-preview position before the fetch
-            const currentPos = new THREE.Vector3();
-            pmtGroup.children.some(ch => {
-                if (ch.userData && ch.userData.pmtIdx === selectedIdx) {
-                    currentPos.copy(ch.position);
-                    return true;
-                }
-                return false;
-            });
-
-            const resp = await fetch('/api/correction/save', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({tube_id: tubeId, axial, tangential, vertical}),
-            });
-            const result = await resp.json();
-            if (result.success) {
-                // Use the live-preview position directly (more reliable than server round-trip)
-                pmtGroup.children.forEach(ch => {
-                    if (ch.userData && ch.userData.pmtIdx === selectedIdx) {
-                        ch.position.copy(currentPos);
-                    }
-                });
-                pmtHWGroup.children.forEach(ch => {
-                    if (ch.userData && ch.userData.pmtIdx === selectedIdx) {
-                        ch.position.copy(currentPos);
-                    }
-                });
-                // Update start state so Cancel doesn't revert
-                meshStartPos = currentPos.clone();
-                selectedStartSliders = [
-                    parseFloat(document.getElementById('adj-0').value),
-                    parseFloat(document.getElementById('adj-1').value),
-                    parseFloat(document.getElementById('adj-2').value),
-                ];
-            }
-            deselectPMT();
-        });
-
-        document.getElementById('adj-reset').addEventListener('click', () => {
-            for (let k = 0; k < 3; k++) {
-                document.getElementById('adj-' + k).value = '0';
-                document.getElementById('adj-val-' + k).textContent = '0.0';
-            }
-            updatePMTPreview();
-        });
-
-        document.getElementById('adj-cancel').addEventListener('click', cancelAdjustment);
-
-        // ---- Surfboard interactive position popup ----
-        const surfPopup = document.getElementById('surfboard-popup');
-
-        function updateSurfboardPosition() {
-            const idx = selectedSurfboard;
-            if (idx < 0 || idx >= surfMeshes.length) return;
-            const mesh = surfMeshes[idx];
-            const ud = mesh.userData;
-            const dVert = parseFloat(document.getElementById('surfVert').value) || 0;
-            const dRad = parseFloat(document.getElementById('surfRad').value) || 0;
-            const dTang = parseFloat(document.getElementById('surfTang').value) || 0;
-
-            const dcx = dVert * ud.axisY.x + dRad * ud.axisZ.x + dTang * ud.axisX.x;
-            const dcy = dVert * ud.axisY.y + dRad * ud.axisZ.y + dTang * ud.axisX.y;
-            const dcz = dVert * ud.axisY.z + dRad * ud.axisZ.z + dTang * ud.axisX.z;
-
-            const newCx = ud.origCenter.x + dcx;
-            const newCy = ud.origCenter.y + dcy;
-            const newCz = ud.origCenter.z + dcz;
-            mesh.position.set(newCx, newCy, newCz);
-
-            fetch('/api/surfboard/adjust', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({index: idx, cx: newCx, cy: newCy, cz: newCz}),
-            }).catch(() => {});
-        }
-
-        function selectSurfboard(idx) {
-            selectedSurfboard = idx;
-            document.getElementById('surfPopupIdx').textContent = idx + 1;
-            for (const axis of ['Vert', 'Rad', 'Tang']) {
-                document.getElementById('surf' + axis).value = 0;
-                document.getElementById('surf' + axis + 'Num').value = 0;
-            }
-            surfPopup.style.display = 'block';
-        }
-
-        function deselectSurfboard() {
-            if (selectedSurfboard < 0) return;
-            selectedSurfboard = -1;
-            surfPopup.style.display = 'none';
-        }
-
-        // Bidirectional sync: slider → number, number → slider
-        const surfAxes = [
-            { slider: 'surfVert', num: 'surfVertNum' },
-            { slider: 'surfRad',  num: 'surfRadNum' },
-            { slider: 'surfTang', num: 'surfTangNum' },
-        ];
-        for (const { slider, num } of surfAxes) {
-            document.getElementById(slider).addEventListener('input', () => {
-                document.getElementById(num).value = document.getElementById(slider).value;
-                updateSurfboardPosition();
-            });
-            document.getElementById(num).addEventListener('input', () => {
-                document.getElementById(slider).value = document.getElementById(num).value;
-                updateSurfboardPosition();
-            });
-        }
-
-        document.getElementById('surfReset').addEventListener('click', () => {
-            const idx = selectedSurfboard;
-            if (idx < 0 || idx >= surfMeshes.length) return;
-            const mesh = surfMeshes[idx];
-            const orig = mesh.userData.origCenter;
-            mesh.position.copy(orig);
-            for (const axis of ['Vert', 'Rad', 'Tang']) {
-                document.getElementById('surf' + axis).value = 0;
-                document.getElementById('surf' + axis + 'Num').value = 0;
-            }
-            fetch('/api/surfboard/adjust', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({index: idx, cx: orig.x, cy: orig.y, cz: orig.z}),
-            }).catch(() => {});
-        });
-
-        document.getElementById('surfPopupClose').addEventListener('click', deselectSurfboard);
-
-        // ---- LAPPD housing interactive position popup ----
-        const housingPopup = document.getElementById('housing-popup');
-
-        function updateHousingPosition() {
-            const idx = selectedHousing;
-            if (idx < 0 || idx >= housingMeshes.length) return;
-            const hm = housingMeshes[idx];
-            const ud = hm.box.userData;
-            const dVert = parseFloat(document.getElementById('hVert').value) || 0;
-            const dRad = parseFloat(document.getElementById('hRad').value) || 0;
-            const dTang = parseFloat(document.getElementById('hTang').value) || 0;
-
-            const dcx = dVert * ud.axisY.x + dRad * ud.axisZ.x + dTang * ud.axisX.x;
-            const dcy = dVert * ud.axisY.y + dRad * ud.axisZ.y + dTang * ud.axisX.y;
-            const dcz = dVert * ud.axisY.z + dRad * ud.axisZ.z + dTang * ud.axisX.z;
-
-            const newCx = ud.origCenter.x + dcx;
-            const newCy = ud.origCenter.y + dcy;
-            const newCz = ud.origCenter.z + dcz;
-            hm.box.position.set(newCx, newCy, newCz);
-
-            // PC moves by the same delta
-            hm.pc.position.set(
-                ud.origPC.x + dcx,
-                ud.origPC.y + dcy,
-                ud.origPC.z + dcz,
-            );
-
-            fetch('/api/lappd/adjust', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({index: idx, cx: newCx, cy: newCy, cz: newCz}),
-            }).catch(() => {});
-        }
-
-        function selectHousing(idx) {
-            selectedHousing = idx;
-            document.getElementById('hPopupIdx').textContent = idx + 1;
-            for (const axis of ['Vert', 'Rad', 'Tang']) {
-                document.getElementById('h' + axis).value = 0;
-                document.getElementById('h' + axis + 'Num').value = 0;
-            }
-            housingPopup.style.display = 'block';
-        }
-
-        function deselectHousing() {
-            if (selectedHousing < 0) return;
-            selectedHousing = -1;
-            housingPopup.style.display = 'none';
-        }
-
-        const housingAxes = [
-            { slider: 'hVert', num: 'hVertNum' },
-            { slider: 'hRad',  num: 'hRadNum' },
-            { slider: 'hTang', num: 'hTangNum' },
-        ];
-        for (const { slider, num } of housingAxes) {
-            document.getElementById(slider).addEventListener('input', () => {
-                document.getElementById(num).value = document.getElementById(slider).value;
-                updateHousingPosition();
-            });
-            document.getElementById(num).addEventListener('input', () => {
-                document.getElementById(slider).value = document.getElementById(num).value;
-                updateHousingPosition();
-            });
-        }
-
-        document.getElementById('hReset').addEventListener('click', () => {
-            const idx = selectedHousing;
-            if (idx < 0 || idx >= housingMeshes.length) return;
-            const hm = housingMeshes[idx];
-            const ud = hm.box.userData;
-            const orig = ud.origCenter;
-            const origPC = ud.origPC;
-            hm.box.position.copy(orig);
-            hm.pc.position.copy(origPC);
-            for (const axis of ['Vert', 'Rad', 'Tang']) {
-                document.getElementById('h' + axis).value = 0;
-                document.getElementById('h' + axis + 'Num').value = 0;
-            }
-            fetch('/api/lappd/adjust', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({index: idx, cx: orig.x, cy: orig.y, cz: orig.z}),
-            }).catch(() => {});
-        });
-
-        document.getElementById('hPopupClose').addEventListener('click', deselectHousing);
-
     } catch (e) {
         statusEl.textContent = 'Error: ' + e.message;
         console.error(e);
@@ -2575,58 +1667,6 @@ window.addEventListener('resize', () => {
 init();
 </script>
 
-<!-- Surfboard position popup -->
-<div id="surfboard-popup">
-  <div class="sb-title">
-    <h3>Surfboard <span id="surfPopupIdx">0</span></h3>
-    <button id="surfPopupClose">✕</button>
-  </div>
-  <div class="sb-row">
-    <label>Vertical</label>
-    <input type="number" id="surfVertNum" step="1" value="0">
-    <input type="range" id="surfVert" min="-1500" max="1500" step="1" value="0">
-  </div>
-  <div class="sb-row">
-    <label>Radial</label>
-    <input type="number" id="surfRadNum" step="1" value="0">
-    <input type="range" id="surfRad" min="-800" max="800" step="1" value="0">
-  </div>
-  <div class="sb-row">
-    <label>Tangential</label>
-    <input type="number" id="surfTangNum" step="1" value="0">
-    <input type="range" id="surfTang" min="-800" max="800" step="1" value="0">
-  </div>
-  <div>
-    <button id="surfReset">Reset</button>
-  </div>
-</div>
-
-<!-- LAPPD Housing position popup -->
-<div id="housing-popup">
-  <div class="sb-title">
-    <h3>LAPPD Housing <span id="hPopupIdx">0</span></h3>
-    <button id="hPopupClose">✕</button>
-  </div>
-  <div class="sb-row">
-    <label>Vertical</label>
-    <input type="number" id="hVertNum" step="1" value="0">
-    <input type="range" id="hVert" min="-1500" max="1500" step="1" value="0">
-  </div>
-  <div class="sb-row">
-    <label>Radial</label>
-    <input type="number" id="hRadNum" step="1" value="0">
-    <input type="range" id="hRad" min="-800" max="800" step="1" value="0">
-  </div>
-  <div class="sb-row">
-    <label>Tangential</label>
-    <input type="number" id="hTangNum" step="1" value="0">
-    <input type="range" id="hTang" min="-800" max="800" step="1" value="0">
-  </div>
-  <div>
-    <button id="hReset">Reset</button>
-  </div>
-</div>
-
 <!-- LAPPD Readout popup -->
 <div id="lappd-readout-popup" style="display:none;position:fixed;bottom:140px;left:50%;transform:translateX(-50%);
      background:rgba(240,242,245,0.95);color:#333;padding:12px 20px;border-radius:8px;font-size:12px;z-index:200;
@@ -2652,8 +1692,12 @@ init();
 """
 
 
-def run_server(args, handler_cls=None, title="Viz server"):
-    """Build the detector and serve it; *handler_cls* defaults to VizHandler."""
+def run_server(args, handler_cls=None, title="Viz server", setup=None):
+    """Build the detector and serve it.
+
+    *handler_cls* defaults to VizHandler; *setup*, if given, is called with
+    the build before serving (the geometry workbench loads its scan data).
+    """
     global geometry, pmt_instance_data
     handler_cls = handler_cls or VizHandler
 
@@ -2685,62 +1729,10 @@ def run_server(args, handler_cls=None, title="Viz server"):
     VizHandler._geometry_status = build.version.status
     VizHandler._build = build
     VizHandler._overlay_path = editable_overlay(build.version)
-    VizHandler._lappd_corr_path = str(Path(__file__).resolve().parent / "lappd_corrections.csv")
-    print(f"  PMT offsets: {len(build.pmt_offsets)} from the geometry version")
-    if VizHandler._overlay_path is not None:
-        print(f"  PMT adjustments are saved to {VizHandler._overlay_path}")
-    else:
-        print(f"  PMT adjustments are disabled: '{build.version.name}' is not a draft version")
-
-    # Load scan mesh overlays
-    print("Loading scan overlays...")
-    for _sn in [
-        "AllPMTs", "SuperStructure", "BottomLayer", "TopLayer",
-        "Panel-1", "Panel-2", "Panel-3", "Panel-4", "Panel-5", "Panel-6", "Panel-7", "Panel-8",
-        "Panel-1-PMTs", "Panel-2-PMTs", "Panel-3-PMTs", "Panel-4-PMTs",
-        "Panel-5-PMTs", "Panel-6-PMTs", "Panel-7-PMTs", "Panel-8-PMTs",
-        "TopPMTs", "BottomPMTs", "TankLid",
-    ]:
-        if _load_scan_mesh(_sn):
-            _n = len(np.load(SCAN_MESH_DIR / f"{_sn}_verts.npy"))
-            print(f"  Scan mesh '{_sn}': {_n} verts")
-
-    # Load PMT tip positions
-    global PMT_TIPS_CACHE
-    _tips_path = SCAN_MESH_DIR / "pmt_tip_positions.csv"
-    if _tips_path.exists():
-        tips = []
-        with open(_tips_path, newline="") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                tip_x = float(row["tip_x"])
-                tip_y = float(row["tip_y"])
-                tip_z = float(row["tip_z"])
-                csv_x = float(row["csv_x"])
-                csv_y = float(row["csv_y"])
-                csv_z = float(row["csv_z"])
-                # Tip positions are in the GDML structure frame
-                tip_x, tip_y, tip_z = structure_to_frame((tip_x, tip_y, tip_z))
-                csv_x, csv_y, csv_z = structure_to_frame((csv_x, csv_y, csv_z))
-                tips.append({
-                    "tube_id": int(row["tube_id"]),
-                    "panel": int(row["panel"]),
-                    "type": row["type"],
-                    "tip_x": tip_x,
-                    "tip_y": tip_y,
-                    "tip_z": tip_z,
-                    "csv_x": csv_x,
-                    "csv_y": csv_y,
-                    "csv_z": csv_z,
-                    "offset_mm": float(row["offset_mm"]),
-                    "n_verts": int(row["n_verts"]),
-                    "reliability": float(row["reliability"]),
-                    "found": row["found"].strip() in ("1", "true", "True"),
-                })
-        PMT_TIPS_CACHE = tips
-        print(f"  PMT tips: {len(tips)} loaded")
-    else:
-        print(f"  PMT tips: NOT FOUND ({_tips_path})")
+    print(f"  Offsets from the geometry version: {len(build.pmt_offsets)} PMTs, "
+          f"{len(build.lappd_offsets)} LAPPDs, {len(build.surfboard_offsets)} surfboards")
+    if setup is not None:
+        setup(build)
 
     host = args.host
     port = args.port

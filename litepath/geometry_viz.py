@@ -13,12 +13,15 @@ only for a draft version (e.g. ``annie-2026-data-tuning``).
 """
 from __future__ import annotations
 
+import csv
 import datetime
+from pathlib import Path
 
 import numpy as np
 
 from litepath import viz_server
 from litepath.detectors import LAPPD_ID_OFFSET_ANNIE
+from litepath.geometry.frame import structure_to_frame
 from litepath.geometry.versions import (
     REPO_ROOT, OFFSET_SECTIONS, GeometryError, load_version, read_offsets, snapshot_version,
     write_offsets,
@@ -30,7 +33,83 @@ _OPERATIONAL_ROUTES = ("/api/trace", "/api/lappd/readout")
 # The viz server's save-immediately routes; the workbench saves through
 # /api/offsets/save instead.
 _DIRECT_SAVE_ROUTES = ("/api/correction/save", "/api/surfboard/adjust", "/api/lappd/adjust",
-                       "/api/lappd_correction")
+                       "/api/lappd_correction")   # gone from viz-server; refused here too
+
+
+# ---- PMT tip positions (from tools/find_pmt_tips.py) ----
+PMT_TIPS_CACHE: list[dict] | None = None  # loaded from pmt_tip_positions.csv
+
+# ---- Scan mesh overlay cache ----
+SCAN_MESH_DIR = Path("scan files by part") / "transformed"
+SCAN_MESH_CACHE: dict[str, tuple[bytes, bytes]] = {}  # name -> (verts_bytes, tris_bytes)
+
+def _load_scan_mesh(name: str):
+    """Load a pre-processed scan mesh from .npy files into the cache.
+
+    The meshes are stored in the GDML structure frame.
+    """
+    verts_path = SCAN_MESH_DIR / f"{name}_verts.npy"
+    tris_path = SCAN_MESH_DIR / f"{name}_tris.npy"
+    if verts_path.exists() and tris_path.exists():
+        verts = np.load(verts_path)
+        tris = np.load(tris_path)
+        verts = structure_to_frame(verts)
+        SCAN_MESH_CACHE[name] = (verts.tobytes(), tris.tobytes())
+        return True
+    return False
+
+
+def _load_scan_data(build) -> None:
+    """Load the scan overlay meshes and PMT tip markers (run before serving)."""
+    # Scan mesh overlays
+    print("Loading scan overlays...")
+    for _sn in [
+        "AllPMTs", "SuperStructure", "BottomLayer", "TopLayer",
+        "Panel-1", "Panel-2", "Panel-3", "Panel-4", "Panel-5", "Panel-6", "Panel-7", "Panel-8",
+        "Panel-1-PMTs", "Panel-2-PMTs", "Panel-3-PMTs", "Panel-4-PMTs",
+        "Panel-5-PMTs", "Panel-6-PMTs", "Panel-7-PMTs", "Panel-8-PMTs",
+        "TopPMTs", "BottomPMTs", "TankLid",
+    ]:
+        if _load_scan_mesh(_sn):
+            _n = len(np.load(SCAN_MESH_DIR / f"{_sn}_verts.npy"))
+            print(f"  Scan mesh '{_sn}': {_n} verts")
+
+    # Load PMT tip positions
+    global PMT_TIPS_CACHE
+    _tips_path = SCAN_MESH_DIR / "pmt_tip_positions.csv"
+    if _tips_path.exists():
+        tips = []
+        with open(_tips_path, newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                tip_x = float(row["tip_x"])
+                tip_y = float(row["tip_y"])
+                tip_z = float(row["tip_z"])
+                csv_x = float(row["csv_x"])
+                csv_y = float(row["csv_y"])
+                csv_z = float(row["csv_z"])
+                # Tip positions are in the GDML structure frame
+                tip_x, tip_y, tip_z = structure_to_frame((tip_x, tip_y, tip_z))
+                csv_x, csv_y, csv_z = structure_to_frame((csv_x, csv_y, csv_z))
+                tips.append({
+                    "tube_id": int(row["tube_id"]),
+                    "panel": int(row["panel"]),
+                    "type": row["type"],
+                    "tip_x": tip_x,
+                    "tip_y": tip_y,
+                    "tip_z": tip_z,
+                    "csv_x": csv_x,
+                    "csv_y": csv_y,
+                    "csv_z": csv_z,
+                    "offset_mm": float(row["offset_mm"]),
+                    "n_verts": int(row["n_verts"]),
+                    "reliability": float(row["reliability"]),
+                    "found": row["found"].strip() in ("1", "true", "True"),
+                })
+        PMT_TIPS_CACHE = tips
+        print(f"  PMT tips: {len(tips)} loaded")
+    else:
+        print(f"  PMT tips: NOT FOUND ({_tips_path})")
 
 
 class GeometryVizHandler(VizHandler):
@@ -63,6 +142,12 @@ class GeometryVizHandler(VizHandler):
                 "status": VizHandler._geometry_status,
                 "editable": VizHandler._overlay_path is not None,
             })
+        elif path == "/api/scan_mesh/list":
+            self._send_scan_mesh_list()
+        elif path.startswith("/api/scan_mesh/"):
+            self._send_scan_mesh(path)
+        elif path == "/api/pmt_tips":
+            self._send_pmt_tips()
         elif path == "/api/offsets":
             overlay = VizHandler._overlay_path
             self._send_json({
@@ -85,6 +170,35 @@ class GeometryVizHandler(VizHandler):
             (self._save_offsets if path == "/api/offsets/save" else self._snapshot)(data)
         else:
             super().do_POST()
+
+    def _send_scan_mesh_list(self):
+        names = sorted(SCAN_MESH_CACHE.keys())
+        self._send_json({"meshes": names})
+
+    def _send_scan_mesh(self, path):
+        parts = path.split("/")
+        if len(parts) < 4:
+            self._send_json({"error": "invalid path"}, 400)
+            return
+        mesh_name = parts[-2]
+        data_type = parts[-1]
+        entry = SCAN_MESH_CACHE.get(mesh_name)
+        if entry is None:
+            self._send_json({"error": f"mesh '{mesh_name}' not available"}, 404)
+            return
+        verts_bytes, tris_bytes = entry
+        if data_type == "verts":
+            self._send_binary(verts_bytes)
+        elif data_type == "tris":
+            self._send_binary(tris_bytes)
+        else:
+            self._send_json({"error": "invalid data type"}, 400)
+
+    def _send_pmt_tips(self):
+        if PMT_TIPS_CACHE is None:
+            self._send_json({"tips": []})
+            return
+        self._send_json({"tips": PMT_TIPS_CACHE})
 
     def _save_offsets(self, data: dict) -> None:
         """Save new totals ``{section: {key: [dx, dy, dz]}}`` to the draft overlay."""
@@ -176,7 +290,8 @@ class GeometryVizHandler(VizHandler):
 
 
 def run_server(args):
-    viz_server.run_server(args, handler_cls=GeometryVizHandler, title="Geometry workbench")
+    viz_server.run_server(args, handler_cls=GeometryVizHandler, title="Geometry workbench",
+                          setup=_load_scan_data)
 
 
 HTML_PAGE = r"""<!DOCTYPE html>

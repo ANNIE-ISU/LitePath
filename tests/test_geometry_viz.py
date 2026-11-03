@@ -20,3 +20,15 @@ def test_geometry_tools_kept_and_tracing_left_out():
                  "/api/correction/save", "/api/surfboard/adjust", "/api/lappd/adjust", "saveLappdCorr"):
         assert gone not in HTML_PAGE, gone
     assert set(_OPERATIONAL_ROUTES) == {"/api/trace", "/api/lappd/readout"}
+
+
+def test_viz_server_page_has_no_geometry_tools():
+    from litepath.viz_server import HTML_PAGE as VIZ_PAGE
+    ids_html = set(re.findall(r'id="([\w-]+)"', VIZ_PAGE))
+    ids_js = set(re.findall(r"getElementById\('([\w-]+)'\)", VIZ_PAGE))
+    assert ids_js <= ids_html, ids_js - ids_html
+    for kept in ("traceBtn", "showCone", "lappd-readout-popup", "showHW", "focusLAPPD"):
+        assert kept in VIZ_PAGE, kept
+    for gone in ("pmt-adjust", "surfboard-popup", "housing-popup", "showScan", "saveLappdCorr",
+                 "/api/correction/save", "/api/scan_mesh", "/api/pmt_tips"):
+        assert gone not in VIZ_PAGE, gone

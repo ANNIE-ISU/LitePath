@@ -21,7 +21,7 @@ from litepath.hits import (  # noqa: F401
 )
 from litepath.optics import C_MM_NS, N_WATER_DEFAULT  # noqa: F401
 from litepath.geometry.build import (  # noqa: F401
-    Geometry, reload_lappd_corrections, build_surfboards, build_surfboard_housings,
+    Geometry, build_surfboards, build_surfboard_housings,
     build_geometry, build_single_lappd_geometry,
 )
 from litepath.engine.kernel import (  # noqa: F401
