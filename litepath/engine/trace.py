@@ -86,7 +86,10 @@ def trace_with_optics(
         lookups into per-photon data like creation time).  If no hits
         are detected, returns two empty arrays and an empty index array.
     """
-    from litepath.optics import evaluate_hit, rayleigh_scatter_dir
+    from litepath.optics import (
+        ACTION_DETECT, ACTION_REFLECT, MODEL_MISSING, MaterialTable, evaluate_hits,
+        rayleigh_scatter_dir_v,
+    )
 
     if rng is None:
         rng = np.random.default_rng()
@@ -94,91 +97,87 @@ def trace_with_optics(
     origins = np.asarray(origins, dtype=np.float32).copy()
     directions = np.asarray(directions, dtype=np.float32).copy()
     n = len(origins)
+    table = MaterialTable.from_config(optics_config)
 
     total_path = np.zeros(n, dtype=np.float32)
     alive = np.ones(n, dtype=bool)
-    n_bounces = np.zeros(n, dtype=np.int32)
     detected_hits: list[np.ndarray] = []
-    detected_bounces: list[np.int32] = []
-    detected_indices: list[int] = []
+    detected_bounces: list[np.ndarray] = []
+    detected_indices: list[np.ndarray] = []
 
     use_water = water_config is not None and water_config.is_active
-    μ_total = water_config.mu_total if use_water else 0.0
+    mu_total = water_config.mu_total if use_water else 0.0
 
-    # n_surface_bounces tracks physical surface reflections only.
-    # Water-scatter retraces don't count toward max_bounces.
+    # All live photons are handled together, one trace per pass.
+    # n_surface counts passes with a surface reflection; water-scatter
+    # retraces don't count toward max_bounces.
     n_surface = 0
     while n_surface <= max_bounces:
-        idx = np.where(alive)[0]
+        idx = np.flatnonzero(alive)
         if len(idx) == 0:
             break
 
         hits = trace_rays(origins[idx], directions[idx], geometry)
-
+        mat = hits[:, HMAT].astype(np.int64)
+        # missed everything, or a material without optics -> photon ends
+        live = (hits[:, HI] != 0) & (table.lookup(mat) != MODEL_MISSING)
         next_alive = np.zeros(len(idx), dtype=bool)
-        this_iter_had_surface = False
+        seg_len = hits[:, HT]
 
-        for j in range(len(idx)):
-            i = idx[j]
-            if hits[j, HI] == 0:
-                alive[i] = False
-                continue
+        # ---- Water attenuation (absorption / Rayleigh scatter) ----
+        surface = live
+        if use_water and mu_total > 0:
+            w = np.flatnonzero(live)
+            u = rng.random(w.size)
+            interacts = u < 1.0 - np.exp(-seg_len[w] * mu_total)
+            wi = w[interacts]
+            s = (-np.log(1.0 - u[interacts]) / mu_total).astype(np.float32)
+            absorbed = np.zeros(wi.size, dtype=bool)
+            if water_config.mu_abs > 0:
+                absorbed = rng.random(wi.size) < water_config.mu_abs / mu_total
+            # Rayleigh scatter — not a surface bounce
+            sc, s_sc = wi[~absorbed], s[~absorbed]
+            gi = idx[sc]
+            total_path[gi] += s_sc
+            origins[gi] = origins[gi] + s_sc[:, None] * directions[gi]
+            directions[gi] = rayleigh_scatter_dir_v(directions[gi], rng)
+            next_alive[sc] = True
+            surface = live.copy()
+            surface[wi] = False
 
-            mat_id = int(hits[j, HMAT])
-            mat_opt = optics_config.get(mat_id)
-            if mat_opt is None:
-                alive[i] = False
-                continue
+        # ---- No water interaction → process surface hit ----
+        sj = np.flatnonzero(surface)
+        gi = idx[sj]
+        total_path[gi] += seg_len[sj]
+        action, new_dir = evaluate_hits(
+            table, mat[sj], directions[gi], hits[sj, HNX:HNZ + 1], n_water, rng)
 
-            seg_len = hits[j, HT]
+        det = action == ACTION_DETECT
+        if det.any():
+            rows = hits[sj[det]].copy()
+            rows[:, HT] = total_path[gi[det]]
+            detected_hits.append(rows)
+            detected_bounces.append(np.full(int(det.sum()), n_surface, dtype=np.int32))
+            detected_indices.append(gi[det].astype(np.int32))
 
-            # ---- Water attenuation (absorption / Rayleigh scatter) ----
-            if use_water and μ_total > 0:
-                u = rng.random()
-                if u < 1.0 - np.exp(-seg_len * μ_total):
-                    s = -np.log(1.0 - u) / μ_total
-                    if water_config.mu_abs > 0 and rng.random() < water_config.mu_abs / μ_total:
-                        # Absorbed
-                        alive[i] = False
-                        continue
-                    # Rayleigh scatter — not a surface bounce
-                    total_path[i] += s
-                    origins[i] = origins[i] + s * directions[i]
-                    directions[i] = rayleigh_scatter_dir(directions[i], rng)
-                    next_alive[j] = True
-                    continue
-
-            # ---- No water interaction → process surface hit ----
-            total_path[i] += seg_len
-
-            incident_dir = directions[i]
-            normal = hits[j, HNX:HNZ + 1]
-            action, new_dir = evaluate_hit(mat_opt, incident_dir, normal, n_water, rng)
-
-            if action == "detect":
-                hits[j, HT] = total_path[i]
-                detected_hits.append(hits[j:j + 1].copy())
-                detected_bounces.append(np.int32(n_surface))
-                detected_indices.append(i)
-                alive[i] = False
-            elif action == "reflect":
-                origins[i] = hits[j, HX:HZ + 1]
-                directions[i] = new_dir
-                next_alive[j] = True
-                this_iter_had_surface = True
-            # absorb: drop
+        ref = action == ACTION_REFLECT
+        origins[gi[ref]] = hits[sj[ref], HX:HZ + 1]
+        directions[gi[ref]] = new_dir[ref]
+        next_alive[sj[ref]] = True
+        # absorb: drop
 
         alive[idx] = next_alive
 
-        if this_iter_had_surface:
+        if ref.any():
             n_surface += 1
         elif not use_water:
             break  # no surface interactions and no water → done
 
     if detected_hits:
         hits_out = np.concatenate(detected_hits, axis=0)
-        bounces_out = np.array(detected_bounces, dtype=np.int32)
-        indices_out = np.array(detected_indices, dtype=np.int32)
+        bounces_out = np.concatenate(detected_bounces)
+        indices_out = np.concatenate(detected_indices)
+        # detections in photon order within each pass, as before
         return hits_out, bounces_out, indices_out
     return (np.zeros((0, N_HIT_COLS), dtype=np.float32),
             np.zeros(0, dtype=np.int32),

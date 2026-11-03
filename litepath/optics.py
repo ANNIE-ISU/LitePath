@@ -344,3 +344,162 @@ def evaluate_hit(
         return "absorb", None
 
     return "absorb", None
+
+
+# ---------------------------------------------------------------------------
+# Array versions (one call per bounce for all photons; same physics as above)
+# ---------------------------------------------------------------------------
+
+# Interaction models as codes, for array lookups by material ID
+MODEL_MISSING, MODEL_ABSORB, MODEL_FRESNEL, MODEL_REFLECT = -1, 0, 1, 2
+ACTION_ABSORB, ACTION_DETECT, ACTION_REFLECT = 0, 1, 2
+_MODEL_CODES = {"absorb": MODEL_ABSORB, "fresnel": MODEL_FRESNEL, "reflect": MODEL_REFLECT}
+
+
+@dataclass
+class MaterialTable:
+    """Per-material optical properties as arrays indexed by material ID.
+
+    Materials missing from the config get ``MODEL_MISSING`` (the photon is
+    dropped, as in :func:`evaluate_hit`'s callers).
+    """
+    model: np.ndarray            # (n,) int
+    refractive_index: np.ndarray  # (n,) float (fresnel; ``or 1.5`` as evaluate_hit)
+    reflectivity: np.ndarray     # (n,) float
+    diffuse_fraction: np.ndarray  # (n,) float
+    is_sensitive: np.ndarray     # (n,) bool
+
+    @classmethod
+    def from_config(cls, optics_config: dict[int, OpticalMaterial]) -> "MaterialTable":
+        n = max([int(k) for k in optics_config] + [0]) + 1
+        table = cls(np.full(n, MODEL_MISSING), np.full(n, 1.5), np.zeros(n), np.zeros(n),
+                    np.zeros(n, dtype=bool))
+        for key, m in optics_config.items():
+            k = int(key)
+            table.model[k] = _MODEL_CODES.get(m.model, MODEL_ABSORB)
+            table.refractive_index[k] = m.refractive_index or 1.5
+            table.reflectivity[k] = m.reflectivity
+            table.diffuse_fraction[k] = m.diffuse_fraction
+            table.is_sensitive[k] = m.is_sensitive
+        return table
+
+    def lookup(self, material_ids: np.ndarray) -> np.ndarray:
+        """Model code per photon (``MODEL_MISSING`` for unknown IDs)."""
+        ids = np.asarray(material_ids, dtype=np.int64)
+        ok = (ids >= 0) & (ids < self.model.size)
+        out = np.full(ids.shape, MODEL_MISSING)
+        out[ok] = self.model[ids[ok]]
+        return out
+
+
+def fresnel_reflectance_v(n1: float, n2: np.ndarray, cos_i: np.ndarray) -> np.ndarray:
+    """:func:`fresnel_reflectance` for arrays of ``n2`` and ``cos_i``."""
+    n2 = np.asarray(n2, dtype=np.float64)
+    cos_i = np.asarray(cos_i, dtype=np.float64)
+    sin_t2 = (n1 / n2) ** 2 * (1.0 - cos_i * cos_i)
+    tir = sin_t2 > 1.0
+    cos_t = np.sqrt(np.where(tir, 0.0, 1.0 - sin_t2))
+    with np.errstate(invalid="ignore", divide="ignore"):   # 0/0 only where tir picks 1.0
+        r_s = ((n1 * cos_i - n2 * cos_t) / (n1 * cos_i + n2 * cos_t)) ** 2
+        r_p = ((n1 * cos_t - n2 * cos_i) / (n1 * cos_t + n2 * cos_i)) ** 2
+    return np.where(tir, 1.0, 0.5 * (r_s + r_p))
+
+
+def specular_reflect_v(incident: np.ndarray, normal: np.ndarray) -> np.ndarray:
+    """:func:`specular_reflect` row by row."""
+    return incident - 2.0 * np.sum(incident * normal, axis=1, keepdims=True) * normal
+
+
+def _tangent_frame(w: np.ndarray, up_switch: float) -> tuple[np.ndarray, np.ndarray]:
+    """Unit vectors (u, v) perpendicular to each row of *w*, as the scalar helpers build them."""
+    up = np.zeros_like(w)
+    up[:, 2] = 1.0
+    swap = np.abs(np.sum(w * up, axis=1)) > up_switch
+    up[swap] = (1.0, 0.0, 0.0)
+    u = np.cross(w, up)
+    norm = np.linalg.norm(u, axis=1)
+    small = norm < 1e-12
+    u[small] = (1.0, 0.0, 0.0)
+    u[~small] /= norm[~small, None]
+    return u, np.cross(w, u)
+
+
+def cosine_weighted_hemisphere_v(normal: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """:func:`cosine_weighted_hemisphere` for each row of *normal*."""
+    normal = np.asarray(normal, dtype=np.float64)
+    m = normal.shape[0]
+    u12 = rng.uniform(0.0, 1.0, (m, 2))
+    theta = np.arccos(np.sqrt(1.0 - u12[:, 0]))
+    phi = 2.0 * np.pi * u12[:, 1]
+    tangent, bitangent = _tangent_frame(normal, 0.99)
+    st = np.sin(theta)[:, None]
+    return st * np.cos(phi)[:, None] * tangent + st * np.sin(phi)[:, None] * bitangent \
+        + np.cos(theta)[:, None] * normal
+
+
+def rayleigh_scatter_dir_v(incident_dir: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """:func:`rayleigh_scatter_dir` for each row (phase function 1 + cos²θ)."""
+    w = np.asarray(incident_dir, dtype=np.float64)
+    m = w.shape[0]
+    cos_theta = np.empty(m)
+    todo = np.arange(m)
+    while todo.size:                      # rejection sampling, ~67 % accepted per pass
+        c = rng.uniform(-1.0, 1.0, todo.size)
+        ok = rng.random(todo.size) < (1.0 + c * c) / 2.0
+        cos_theta[todo[ok]] = c[ok]
+        todo = todo[~ok]
+    sin_theta = np.sqrt(np.maximum(0.0, 1.0 - cos_theta * cos_theta))
+    phi = rng.uniform(0.0, 2.0 * np.pi, m)
+    u, v = _tangent_frame(w, 0.99)
+    return (sin_theta * np.cos(phi))[:, None] * u + (sin_theta * np.sin(phi))[:, None] * v \
+        + cos_theta[:, None] * w
+
+
+def evaluate_hits(
+    table: MaterialTable,
+    material_ids: np.ndarray,
+    incident_dir: np.ndarray,
+    normal: np.ndarray,
+    n_water: float,
+    rng: np.random.Generator,
+) -> tuple[np.ndarray, np.ndarray]:
+    """:func:`evaluate_hit` for many photons at once.
+
+    Returns ``(action, new_dir)``: ``action`` per photon is ACTION_ABSORB,
+    ACTION_DETECT or ACTION_REFLECT; ``new_dir`` (m, 3) is meaningful for
+    reflections only.  Materials must be known (see MaterialTable.lookup).
+    """
+    ids = np.asarray(material_ids, dtype=np.int64)
+    inc = np.asarray(incident_dir, dtype=np.float64)
+    nrm = np.asarray(normal, dtype=np.float64)
+    m = ids.size
+    model = table.model[ids]
+    action = np.full(m, ACTION_ABSORB)
+    new_dir = np.zeros((m, 3))
+
+    fres = np.flatnonzero(model == MODEL_FRESNEL)
+    if fres.size:
+        n_f = nrm[fres]
+        cos_i = -np.sum(inc[fres] * n_f, axis=1)
+        flip = cos_i < 0.0
+        n_f[flip] = -n_f[flip]
+        cos_i = np.abs(cos_i)
+        R = fresnel_reflectance_v(n_water, table.refractive_index[ids[fres]], cos_i)
+        refl = rng.random(fres.size) < R
+        action[fres[refl]] = ACTION_REFLECT
+        new_dir[fres[refl]] = specular_reflect_v(inc[fres[refl]], n_f[refl])
+        sens = ~refl & table.is_sensitive[ids[fres]]
+        action[fres[sens]] = ACTION_DETECT
+
+    mirror = np.flatnonzero(model == MODEL_REFLECT)
+    if mirror.size:
+        refl = mirror[rng.random(mirror.size) < table.reflectivity[ids[mirror]]]
+        if refl.size:
+            diffuse = rng.random(refl.size) < table.diffuse_fraction[ids[refl]]
+            action[refl] = ACTION_REFLECT
+            d, s = refl[diffuse], refl[~diffuse]
+            if d.size:
+                new_dir[d] = cosine_weighted_hemisphere_v(nrm[d], rng)
+            new_dir[s] = specular_reflect_v(inc[s], nrm[s])
+    return action, new_dir
+
