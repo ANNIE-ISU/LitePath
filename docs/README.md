@@ -66,6 +66,33 @@ python -m litepath geometry list
 Use the same `--geometry` for `fit` as for the `batch` run that made the
 events.
 
+## CPU or GPU
+
+Every command that traces photons (`batch`, `batch-lappd`, `fit`,
+`viz-server`, `viz-lappd`, `geometry-viz`) takes `--arch`:
+
+| `--arch` | Runs on |
+|---|---|
+| `cpu` (default) | The CPU: Windows, macOS, Linux; x86-64 and ARM |
+| `gpu` | The best GPU available (CUDA, Vulkan or Metal), else the CPU |
+| `metal` | Apple GPUs (Apple Silicon Macs) |
+| `cuda` | NVIDIA GPUs (Linux, Windows) |
+| `vulkan` | Vulkan GPUs (Linux, Windows; macOS through MoltenVK) |
+
+`export LITEPATH_ARCH=gpu` sets the default for every command and script.
+Each run prints the backend in use; if a GPU backend is unavailable, Taichi
+falls back to the CPU. On an Apple Silicon MacBook Air, Metal runs batch
+about 5× faster than the CPU (30.8 vs 6.2 muons/s for 200 beam muons).
+
+The CPU is the reference: the tests and reference outputs run on it, bit
+for bit. A GPU gives the same light to statistics, not bit for bit (float
+arithmetic and the order of parallel additions differ): in a 200-muon run
+Metal detected 517,357 photons against the CPU's 517,358, three PMTs
+differing by one photon. `pytest -m gpu` repeats that check on any machine
+with a GPU. Batch draws all its random numbers from one stream, so one
+different photon shifts the random muons of every later event; compare
+backends with `--muon-file` (and without `--pmt-response`).
+
 ## CLI Commands
 
 ### Geometry versions and `geometry`
@@ -266,7 +293,8 @@ python -m litepath fit output.h5 [--event 0] [flags]
 
 ```bash
 pytest                         # All fast tests (slow ones deselected)
-pytest -m slow                 # Slow end-to-end tests (geometry + GPU kernel)
+pytest -m slow                 # Slow end-to-end tests (geometry + trace kernel, CPU)
+pytest -m gpu                  # GPU vs CPU agreement (skipped without a GPU)
 pytest tests/test_scintillation.py  # Scintillation / timing unit tests
 pytest tests/test_timing_e2e.py -m slow  # End-to-end arrival-time sanity test
 ```
@@ -635,6 +663,7 @@ path. Both are off by default (`0.0` = disabled).
 | `geometry/elements.py` | `PMTRecord` and readers for the ToolAnalysis PMT table and the WCSim scan file |
 | `geometry/build.py` | `Geometry` dataclass, `build_geometry()`, surfboards and housings, `build_single_lappd_geometry()` |
 | `engine/kernel.py` | Taichi ray-intersection functions and `trace_kernel` |
+| `engine/scene.py` | Packs the Geometry into the kernel's three scene buffers (`pack_scene`) |
 | `engine/trace.py` | `trace_rays()`, `trace_with_optics()` (multi-bounce, water attenuation) |
 | `sources/track.py` | Where along a muon track light is generated: the part inside the tank (in front of the housing's back face for standalone LAPPD) |
 | `simulate.py` | `trace_muon_light()` / `trace_cherenkov()`: generate muon light and trace it |

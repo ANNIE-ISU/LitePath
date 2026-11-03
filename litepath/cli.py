@@ -44,6 +44,18 @@ def add_geometry_option(parser: argparse.ArgumentParser) -> None:
                         **{k: None for k in [*defaults, *switches]})
 
 
+# Commands that run Taichi kernels take --arch (see litepath/backend.py)
+_KERNEL_COMMANDS = ("batch", "batch-lappd", "fit", "viz-server", "viz-lappd", "geometry-viz")
+
+
+def add_arch_option(parser: argparse.ArgumentParser) -> None:
+    """Add --arch (CPU or GPU backend) to a command that runs kernels."""
+    from litepath.backend import ARCH_CHOICES, DEFAULT_ARCH, ENV_VAR
+    parser.add_argument("--arch", choices=ARCH_CHOICES, default=None,
+                        help=f"Compute backend (default: ${ENV_VAR}, else {DEFAULT_ARCH}); "
+                             "gpu = best available GPU, falling back to the CPU")
+
+
 def resolve_geometry(args: argparse.Namespace):
     """The GeometryVersion selected by --geometry or by the older flags."""
     from litepath.geometry.versions import (
@@ -430,6 +442,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     for geometry_parser in (detcfg, batch, fit, bench, viz, gviz):
         add_geometry_option(geometry_parser)
+    for kernel_parser in (batch, lappd_batch, fit, viz, lappd, gviz):
+        add_arch_option(kernel_parser)
 
     return p
 
@@ -907,11 +921,15 @@ def fit_command(args: argparse.Namespace) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    import taichi as ti
-    ti.init(arch=ti.cpu, default_fp=ti.f32)
+    from litepath import backend
 
     parser = build_parser()
     args = parser.parse_args(argv)
+    try:
+        backend.init(getattr(args, "arch", None), quiet=args.command not in _KERNEL_COMMANDS)
+    except ValueError as exc:   # bad $LITEPATH_ARCH
+        print(f"Error: {exc}")
+        return
 
     if args.command == "geometry":
         geometry_command(args)

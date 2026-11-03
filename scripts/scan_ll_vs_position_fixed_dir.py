@@ -59,8 +59,8 @@ def _count_hits_per_pmt(hits: np.ndarray) -> dict[int, int]:
 
 
 def main() -> None:
-    import taichi as ti
-    ti.init(arch=ti.cpu, default_fp=ti.f32)
+    from litepath import backend
+    backend.init()   # CPU unless $LITEPATH_ARCH says otherwise (e.g. LITEPATH_ARCH=gpu)
 
     parser = argparse.ArgumentParser(
         description="Scan log-likelihood vs muon position at fixed direction"

@@ -113,12 +113,13 @@ pip install -e . --no-deps
 
 ```bash
 python -c "import litepath; print('OK')"
-# Optional — check Taichi backend:
-python -c "import taichi as ti; ti.init(); print(ti.lang.impl.current_cfg().arch)"
+# Optional — which GPU backend LitePath would use:
+python -c "from litepath import backend; backend.init('gpu')"
 ```
 
-You should see `OK` with no errors.  The Taichi arch check will print
-`x64` (CPU), `cuda` (NVIDIA GPU), or similar.  If cadquery is missing,
+You should see `OK` with no errors.  The backend check prints
+`Taichi backend: cuda` (NVIDIA GPU), `vulkan`, or `cpu` if no GPU backend
+works.  If cadquery is missing,
 the package will still import — cadquery is only used when `--step` or
 `--manifest` are passed on the command line.
 
@@ -138,20 +139,18 @@ Wrote results/output.h5 (10 muon truth rows)
 Done.
 ```
 
-**With an NVIDIA GPU — switch to CUDA for 5-10× speedup:**
+**With a GPU:** add `--arch gpu` (best available GPU: CUDA, then Vulkan),
+or `--arch cuda` / `--arch vulkan` to choose; `export LITEPATH_ARCH=gpu`
+makes it the default for every command and script:
 
 ```bash
-python -c "
-import taichi as ti
-ti.init(arch=ti.cuda)
-from litepath.cli import main
-main()
-" batch --events 500 --photons-per-cm 150
+python -m litepath batch --arch gpu --geometry annie-2026-data --events 500 --photons-per-cm 150
 ```
 
-Or set the arch directly in a one-off script.  For routine GPU use you can
-edit the `ti.init(arch=ti.cpu)` calls in `litepath/cli.py` and
-`litepath/viz_server.py` to `ti.cuda`.
+Every run prints the backend in use (`Taichi backend: cuda`); if the GPU
+backend is unavailable, Taichi falls back to the CPU and says so. GPU
+results agree with the CPU statistically, not bit for bit. To check a GPU
+against the CPU on this machine: `pytest -m gpu`.
 
 ### Standard full detector (three surfboards with LAPPDs)
 
@@ -187,6 +186,6 @@ WebGL for the Three.js rendering.
 | `taichi.lang.exception.TaichiCompilationError: ...` | Taichi JIT needs C++ tools | `apt install build-essential cmake` |
 | `ModuleNotFoundError: No module named 'cadquery'` | ARM Linux + no conda | Install via conda-forge (section 4) or use a `--geometry` version (doesn't need cadquery) |
 | `Cannot open self /usr/bin/python3` | System Python too old | Install Python 3.11+ from deadsnakes PPA or python.org |
-| `import taichi` crashes or `ti.cuda` unavailable | CUDA not installed or incompatible | Run with CPU only (default).  Taichi prints a clear error if it can't find a requested backend. |
-| Performance warning from Taichi, arch = `x64` | No GPU detected | Normal — CPU mode is ~2-5× slower than GPU.  If you have an NVIDIA card, install CUDA toolkit. |
+| `import taichi` crashes or CUDA unavailable | CUDA not installed or incompatible | Use `--arch cpu` (the default) or `--arch vulkan`; Taichi falls back to the CPU if it can't start the requested backend |
+| `Taichi backend: cpu (cuda not available)` | No usable GPU backend | Normal on CPU-only machines (about 5× slower than a GPU). For an NVIDIA card, install the CUDA driver |
  | `h5py failed to open file` | File corrupt from killed job | Delete and re-run with smaller `--events` or longer timeout |

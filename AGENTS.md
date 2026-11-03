@@ -23,6 +23,7 @@ litepath/
 │   ├── geometry/versions.py # Geometry versions, fingerprint, tagging, load_build()
 │   ├── geometry/elements.py # PMTRecord, ToolAnalysis / scan-file readers
 │   ├── engine/kernel.py   # Taichi intersection functions, trace_kernel
+│   ├── engine/scene.py    # pack_scene: Geometry -> 3 kernel buffers (never add kernel args)
 │   ├── engine/trace.py    # trace_rays(), trace_with_optics()
 │   ├── sources/track.py   # Light-generating part of a muon track (inside the tank)
 │   ├── simulate.py    # trace_muon_light() / trace_cherenkov()
@@ -44,6 +45,7 @@ litepath/
 │   ├── benchmark.py    # WAGLE ROOT (data/MC) → litepath HDF5 conversion
 │   ├── viz_server.py  # Interactive Three.js 3D event viewer (muons, tracing)
 │   ├── geometry_viz.py # Geometry workbench: adjust/save offsets, snapshots
+│   ├── backend.py     # --arch / $LITEPATH_ARCH: CPU or GPU (Metal, CUDA, Vulkan)
 │   └── io_h5.py       # HDF5 table I/O
 ├── scripts/           # Analysis/plotting utilities (13 files)
 │   ├── event_display.py  # Event display (batch + WAGLE benchmark files)
@@ -240,7 +242,8 @@ Recent work focuses on validation, analysis scripts, and fitting accuracy.
 
 ```bash
 pytest                         # Run all fast tests (slow ones deselected)
-pytest -m slow                 # Run slow end-to-end tests (geometry + GPU kernel)
+pytest -m slow                 # Run slow end-to-end tests (geometry + trace kernel, CPU)
+pytest -m gpu                  # GPU vs CPU agreement (skipped without a GPU)
 pytest tests/test_reference_outputs.py -m "slow or not slow"  # End-to-end output vs stored reference
 pytest tests/test_timing_e2e.py -m slow  # End-to-end arrival-time sanity test
 pytest tests/test_batch_event_split.py  # Per-event hit attribution in batch mode

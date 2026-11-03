@@ -1701,10 +1701,6 @@ def run_server(args, handler_cls=None, title="Viz server", setup=None):
     global geometry, pmt_instance_data
     handler_cls = handler_cls or VizHandler
 
-    import taichi as ti
-
-    ti.init(arch=ti.cpu, default_fp=ti.f32)
-
     from litepath.cli import load_geometry_build
 
     build = load_geometry_build(args)

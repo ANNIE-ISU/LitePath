@@ -30,7 +30,8 @@ benchmark = [
 include = ["litepath*"]
 
 [tool.pytest.ini_options]
-addopts = "-m 'not slow'"
+addopts = "-m 'not slow and not gpu'"
 markers = [
-    "slow: end-to-end tests that build detector geometry and run the GPU kernel",
+    "slow: end-to-end tests that build detector geometry and run the trace kernel",
+    "gpu: compare a GPU backend with the CPU (pytest -m gpu; skipped without a GPU)",
 ]

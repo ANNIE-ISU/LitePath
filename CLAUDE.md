@@ -45,9 +45,11 @@ changed before starting.
    Discussion). Reference issues in fix commits ("Fixes #N"). Still to do:
    issues for pending features; `v1.0-validated` milestone once defined.
 4. **Org transfer** — DONE (2026-10-27): now `ANNIE-ISU/LitePath`.
-5. **Restore Metal GPU backend** — issue #12 (opened 2026-10-27). All
-   `ti.init` calls are hard-coded to `ti.cpu` because `trace_kernel` takes 34
-   ndarray args (> Metal's 31-buffer limit; 32 before the PMT-mesh BVH). Soon a priority; not started.
+5. **Restore Metal GPU backend** — issue #12. Branch `metal-gpu`
+   (2026-11-03): scene packed into 3 buffers (`engine/scene.py`), `--arch
+   {cpu,gpu,metal,cuda,vulkan}` / `$LITEPATH_ARCH` (`litepath/backend.py`),
+   default still `cpu`. Metal works: ~5× faster, agrees with CPU to
+   statistics (`pytest -m gpu`). CUDA/Vulkan untested (need a Linux GPU box).
 6. **Phase 0 migration** (design doc "LitePath Architecture & Geometry Design
    (Phase 0)", claude.ai) — steps 1–3 DONE (step 3 merged 2026-11-02 at
    cef8087: geometry versions, fixed frame, output v2, default
@@ -100,8 +102,9 @@ changed before starting.
   `load_observed_event()` wraps them on read
 - `DET_SYS_PMT=0`, `DET_SYS_LAPPD_DEFAULT=1`, `DET_SYS_LAPPD_ANNIE=2`
 - Speed of light: `C_MM_NS = 299.792458`, default water index `N_WATER_DEFAULT = 1.34`
-- Tests: `pytest` skips GPU tests by default (`-m 'not slow'`); run
-  `pytest -m slow` on a machine with a GPU to include them
+- Tests: `pytest` runs the fast CPU tests (`-m 'not slow and not gpu'`);
+  `pytest -m slow` adds the end-to-end runs (CPU), `pytest -m gpu` compares a
+  GPU backend with the CPU (skipped without a GPU)
 - Reference outputs: `tests/test_reference_outputs.py` re-runs fixed-seed CLI
   cases (`tests/reference_cases.py`) and compares with `tests/reference/*.npz`.
   Any refactor must keep them passing (`pytest -m "slow or not slow"`).
@@ -112,9 +115,10 @@ changed before starting.
 
 ```bash
 pip install -e .
-pytest                            # fast tests (no GPU)
-pytest -m slow                    # full suite (needs GPU)
-litepath batch --help             # main simulation CLI
+pytest                            # fast tests (CPU)
+pytest -m "slow or not slow"      # everything, incl. reference outputs and the GPU check
+pytest -m gpu                     # GPU vs CPU agreement (skipped without a GPU)
+litepath batch --help             # main simulation CLI (--arch gpu for the GPU)
 litepath fit results/output.h5    # direction fitter
 ```
 
