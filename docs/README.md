@@ -83,6 +83,13 @@ Every command that traces photons (`batch`, `batch-lappd`, `fit`,
 Each run prints the backend in use; if a GPU backend is unavailable, Taichi
 falls back to the CPU. On an Apple Silicon MacBook Air, Metal runs batch
 about 5× faster than the CPU (30.8 vs 6.2 muons/s for 200 beam muons).
+With reflections and water attenuation (`--max-bounces 2`, absorption and
+scattering on) it is 20.0 vs 7.6 muons/s, and with `--lappd-response`
+22.7 vs 6.3. Use the GPU for full-detector runs. The standalone LAPPD
+(`batch-lappd`, `viz-lappd`) is better left on the CPU: its events are
+small and handled one at a time, so a GPU's launch and copy overhead
+outweighs the work (a 400-event scan with readout: 2.7 s on the CPU,
+6.3 s on Metal).
 
 The CPU is the reference: the tests and reference outputs run on it, bit
 for bit. A GPU gives the same light to statistics, not bit for bit (float
