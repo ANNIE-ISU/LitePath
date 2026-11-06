@@ -497,6 +497,51 @@ python scripts/event_display.py results/
 python scripts/event_display.py results/output.h5
 ```
 
+### `LAPPD_shadowing_map.py`
+
+LAPPD hit maps and shadowing-ratio maps for a muon grid scan, laid out as
+in Yue Feng's thesis (ch. 7, Fig. 7.7): one chunk of dots per start
+position (x, z), one dot per direction inside a chunk, placed at its
+slopes (dx/dy, dz/dy). One figure per LAPPD. Files with a single
+direction per position are drawn as a colour mesh over (x, z).
+
+```bash
+# hits per event (log colour scale)
+python scripts/LAPPD_shadowing_map.py results/yue_full
+# shadowing ratio: hits in the first run / hits in the second (blue 0, white 1, red 2)
+python scripts/LAPPD_shadowing_map.py results/yue_full --ratio-to results/yue_no-gdml
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--ratio-to` | — | Second run; plot the ratio of mean hits per event (Yue's eq. 7.1) |
+| `--save` | — | Also save each map as `PREFIX_lappd<N>.png` |
+| `--table` | — | Also write the per-topology table as text |
+
+Topologies are matched by position and direction, and events that repeat
+a topology (`--events` a multiple of the muon file's line count; the file
+wraps around) are averaged. In ratio mode, directions with no hits in the
+second run are left blank.
+
+`muon_files/MuonStartsAndDirecs_Yue_13x13pos_9x9dir.txt` is Yue's grid:
+13×13 positions on the y = 0 plane (200 mm steps around the tank centre)
+× 9×9 directions in equal slope steps of 0.2 (±0.8). For a ratio, run
+both configurations with the same muon file, `--events` and `--seed`:
+with the default options (no `--max-bounces`, no water attenuation, no
+`--pmt-response`) they then trace the same photons, so the ratio has no
+run-to-run noise:
+
+```bash
+M=muon_files/MuonStartsAndDirecs_Yue_13x13pos_9x9dir.txt
+litepath batch --muon-file $M --seed 1 --arch gpu -o results/yue_full
+litepath batch --muon-file $M --seed 1 --arch gpu --no-gdml -o results/yue_no-gdml
+```
+
+`--no-pmt-holders` removes the PMT body meshes as well as the holders:
+PMTs become spheres that detect on the front half and are transparent at
+the back, which casts a different shadow. A ratio against such a run can
+exceed 1 where the spheres block more light than the real PMT shapes.
+
 ### `load_batch.py`
 
 Template script showing how to load HDF5 output and group hits by event
@@ -706,6 +751,7 @@ path. Both are off by default (`0.0` = disabled).
 | `scripts/convert_to_h5.py` | Convert old parquet output directories to HDF5 |
 | `scripts/LAPPD_positionscan.py` | LAPPD hit heatmap from batch output |
 | `scripts/LAPPD_positionscanH5.py` | LAPPD hit heatmap from HDF5 batch output |
+| `scripts/LAPPD_shadowing_map.py` | LAPPD hit and shadowing-ratio maps for a muon grid scan (Yue's layout) |
 | `scripts/pmt_histograms.py` | Per-PMT charge/time histograms |
 | `scripts/event_display.py` | Interactive 3-panel event display |
 | `scripts/generate_muon_grid.py` | Generate `MuonStartsAndDirecs` with angular scan |
