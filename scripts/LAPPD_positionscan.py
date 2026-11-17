@@ -44,12 +44,12 @@ def main() -> None:
     if hits.empty:
         print("No photon_hits found.")
         return
-
+    #hits.to_csv("hits_check.txt", sep="\t", index=False) #Added this to check the hits data and see if it is being read in correctly
     muons = load_table(h5_path, "muon_truth")
     if muons.empty:
         print("No muon_truth found.")
         return
-
+    muons.to_csv("muon_truth_check.txt", sep="\t", index=False) #Added this to check the muon_truth data and see if it is being read in correctly
     # ANNIE LAPPDs have indices 132, 133, 134
     LAPPD_Indices = [132, 133, 134] 
     lappd_hits = hits[hits["detector_system"].isin(LAPPD_Indices)]
@@ -62,6 +62,7 @@ def main() -> None:
     lappd_hits = hits[hits["detector_index"].isin(LAPPD_Indices)]
     #print(lappd_hits.to_string()) #Checking inside 
     counts = lappd_hits.groupby(["event_id", "detector_index"]).size().reset_index(name="n_hits")
+    
     pivoted = counts.pivot(index="event_id", columns="detector_index", values="n_hits").fillna(0).astype(int)
 
     # Merge with muon positions (positions in mm, convert to m for plotting)
