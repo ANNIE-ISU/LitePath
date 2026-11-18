@@ -1,5 +1,5 @@
 name: annie-2026-data
-status: tagged
+status: draft
 description: 'ANNIE Phase II for comparison with real data: ToolAnalysis PMT table at commit
   2418739 (PMTs 453 and 455 corrected, 15 PMTs marked OFF), bottom-PMT spin 22.5 deg as in
   the viz server, three surfboards with housed ANNIE LAPPDs. Top-PMT rotations are known to
